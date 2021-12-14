@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rsync-worker
+  namespace: hub
+spec:
+  template:
+    spec:
+      containers:
+      - name: rsync-worker
+        image: infuseai/rsync-server:latest
+        imagePullPolicy: Always
+        command: ['/bin/bash', '/root/start_rsync.sh']
+        env:
+        - name: REMOTE_K8S_CLUSTER
+          value: hub.kent.aws.primehub.io
+        - name: SSH_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: rsync-ssh-key
+              key: privatekey
+        volumeMounts:
+        - name: data-volume
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+      restartPolicy: Never
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: claim-phadmin # Fill correct data

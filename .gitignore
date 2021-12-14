@@ -143,3 +143,7 @@ tags
 !.vscode/*.code-snippets
 
 # End of https://www.toptal.com/developers/gitignore/api/go,goland,visualstudiocode,vim
+
+
+id_rsa
+id_rsa.pub
