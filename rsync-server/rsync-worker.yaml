@@ -13,7 +13,7 @@ spec:
         command: ['/bin/bash', '/root/start_rsync.sh']
         env:
         - name: REMOTE_K8S_CLUSTER
-          value: hub.kent.aws.primehub.io
+          value: hub.a.demo.primehub.io
         - name: SSH_PRIVATE_KEY
           valueFrom:
             secretKeyRef:
@@ -33,4 +33,4 @@ spec:
       volumes:
       - name: data-volume
         persistentVolumeClaim:
-          claimName: claim-phadmin # Fill correct data
+          claimName: claim-kent # Fill correct data
