@@ -8,6 +8,7 @@ metadata:
     component: singleuser-server
     ssh-bastion-server/notebook: "true"
     managed-by: TaoKan
+    mountPvc: claim-kent # Fill correct data
 spec:
   containers:
     - image: infuseai/rsync-server:latest

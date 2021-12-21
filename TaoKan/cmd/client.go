@@ -84,3 +84,17 @@ func init() {
 	// is called directly, e.g.:
 	// clientCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
+
+func clientEntrypoint(cmd *cobra.Command, args []string) {
+	// Flow
+
+	// Init k8s cluster
+
+	// Prepare selected pvc list
+	//		Project & Dataset
+	//  	User
+
+	// Build the connection with Server
+
+	// Transfer data processes
+}

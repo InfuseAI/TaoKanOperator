@@ -2,16 +2,21 @@ package KubernetesAPI
 
 import (
 	"context"
+	_ "embed"
+	"errors"
+	"fmt"
+	log "github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"strings"
 	"sync"
-
-	log "github.com/sirupsen/logrus"
+	"time"
 )
 
 var lock = &sync.Mutex{}
@@ -102,6 +107,43 @@ func (k *KubernetesCluster) ListPodsUsePvc(namespace string, pvcName string) ([]
 	})
 }
 
+func (k *KubernetesCluster) DeletePod(namespace string, podName string) error {
+	ctx := context.TODO()
+	err := k.Clientset.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	timeoutSeconds := int64(60)
+	watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
+		FieldSelector:  "metadata.name=" + podName,
+		TimeoutSeconds: &timeoutSeconds,
+	})
+	if err != nil {
+		return err
+	}
+
+	for event := range watcher.ResultChan() {
+		if event.Type == watch.Deleted {
+			log.Infof("[Deleted] Pod %s\n", podName)
+			break
+		}
+	}
+
+	return nil
+}
+
+func (k *KubernetesCluster) GetPvc(namespace string, pvcName string) (*v1.PersistentVolumeClaim, []v1.Pod, error) {
+	pvc, err := k.Clientset.CoreV1().PersistentVolumeClaims(namespace).Get(context.TODO(), pvcName, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	usedPods, err := k.ListPodsUsePvc(namespace, pvcName)
+	if err != nil {
+		return pvc, nil, err
+	}
+	return pvc, usedPods, err
+}
+
 func (k *KubernetesCluster) ListPvc(namespace string) ([]v1.PersistentVolumeClaim, error) {
 	pvcList, err := k.Clientset.CoreV1().PersistentVolumeClaims(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -141,4 +183,91 @@ func (k *KubernetesCluster) ListDatasetPvc(namespace string) ([]v1.PersistentVol
 	return k.ListPvcByFilter(namespace, func(pvc v1.PersistentVolumeClaim) bool {
 		return strings.HasPrefix(pvc.Name, "data-nfs-dataset")
 	})
+}
+
+//go:embed rsync-server.yaml
+var RsyncServerYamlTemplate []byte
+
+func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName string) error {
+	var podTemplate v1.Pod
+	err := yaml.Unmarshal(RsyncServerYamlTemplate, &podTemplate)
+	if err != nil {
+		return err
+	}
+
+	// Prepare the pod template
+	podTemplate.Name = fmt.Sprintf("rsync-server-%s", pvcName)
+	podTemplate.Namespace = namespace
+	podTemplate.Labels["mountPvc"] = pvcName
+	podTemplate.Spec.Volumes[0].PersistentVolumeClaim.ClaimName = pvcName
+
+	// Apply pod
+	_, err = k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
+
+	// Check Service
+	retryTimes := 3
+	retryDuration := 5 * time.Second
+	var svc *v1.Service
+	for i := 1; i <= retryTimes; i++ {
+		svc, err = k.Clientset.CoreV1().Services(namespace).Get(context.TODO(), podTemplate.Name, metav1.GetOptions{})
+		if err != nil {
+			log.Warnf("Get service %s failed: %v, retry #%d ...\n", podTemplate.Name, err, i)
+			time.Sleep(retryDuration)
+			continue
+		}
+		break
+	}
+	if err != nil {
+		return err
+	}
+	log.Infof("Service %s found\n", svc.Name)
+
+	// Wait until rsync-server pod ready
+	selector := "metadata.name=" + podTemplate.Name
+	timeoutSeconds := int64(60 * 5)
+	ctx := context.TODO()
+	watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
+		FieldSelector:  selector,
+		TimeoutSeconds: &timeoutSeconds,
+	})
+	if err != nil {
+		return err
+	}
+
+	isRsyncServerReady := false
+	for event := range watcher.ResultChan() {
+		if event.Object == nil {
+			break
+		}
+		pod, ok := event.Object.(*v1.Pod)
+		if !ok {
+			break
+		}
+		containerState := pod.Status.ContainerStatuses[0].State
+		var msg string
+		if pod.Status.ContainerStatuses[0].State.Waiting != nil {
+			msg = containerState.Waiting.Reason
+		} else if containerState.Running != nil {
+			msg = "Running"
+		} else if containerState.Terminated != nil {
+			msg = containerState.Terminated.Reason
+		}
+
+		log.Infof("Pod: %s Status: %v\n", pod.Name, msg)
+		if pod.Status.Phase == v1.PodPending {
+			continue
+		} else if pod.Status.Phase == v1.PodRunning {
+			log.Infof("[Ready] %s\n", pod.Name)
+			isRsyncServerReady = true
+			break
+		} else {
+			break
+		}
+	}
+
+	if !isRsyncServerReady {
+		err = errors.New(fmt.Sprintf("pod %s is not ready", podTemplate.Name))
+	}
+
+	return err
 }

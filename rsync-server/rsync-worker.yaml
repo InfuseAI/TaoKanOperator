@@ -3,6 +3,8 @@ kind: Job
 metadata:
   name: rsync-worker
   namespace: hub
+  labels:
+    managed-by: TaoKan
 spec:
   template:
     spec:
