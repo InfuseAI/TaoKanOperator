@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -32,7 +33,7 @@ func GetInstance(kubeconfig string) *KubernetesCluster {
 		lock.Lock()
 		defer lock.Unlock()
 		if instance == nil {
-			log.Infoln("Init k8s instance")
+			log.Debugln("Init k8s instance")
 			instance = &KubernetesCluster{}
 			err := instance.init(kubeconfig)
 			if err != nil {
@@ -270,4 +271,106 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 	}
 
 	return err
+}
+
+//go:embed rsync-worker.yaml
+var RsyncWorkerYamlTemplate []byte
+
+func (k *KubernetesCluster) LaunchRsyncWorkerJob(remote string, namespace string, pvcName string) error {
+	var jobTemplate batchv1.Job
+	err := yaml.Unmarshal(RsyncWorkerYamlTemplate, &jobTemplate)
+	if err != nil {
+		return err
+	}
+
+	// Prepare the job template. This
+	jobTemplate.Name = fmt.Sprintf("rsync-worker-%s", pvcName)
+	jobTemplate.Namespace = namespace
+	jobTemplate.Labels["mountPvc"] = pvcName
+	jobTemplate.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim.ClaimName = pvcName
+	for i, env := range jobTemplate.Spec.Template.Spec.Containers[0].Env {
+		switch env.Name {
+		case "REMOTE_K8S_CLUSTER":
+			jobTemplate.Spec.Template.Spec.Containers[0].Env[i].Value = remote
+		case "REMOTE_SERVER_NAME":
+			jobTemplate.Spec.Template.Spec.Containers[0].Env[i].Value = fmt.Sprintf("rsync-server-%s", pvcName)
+		case "REMOTE_NAMESPACE":
+			jobTemplate.Spec.Template.Spec.Containers[0].Env[i].Value = namespace
+		}
+	}
+
+	// Delete the existing job
+	err = k.DeleteJob(namespace, jobTemplate.Name)
+	if err != nil {
+		log.Warn(err)
+	}
+
+	// Apply Job
+	_, err = k.Clientset.BatchV1().Jobs(namespace).Create(context.TODO(), &jobTemplate, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Job %s created\n", jobTemplate.Name)
+	return nil
+}
+
+func (k *KubernetesCluster) DeleteJob(namespace string, jobName string) error {
+	ctx := context.TODO()
+	err := k.Clientset.BatchV1().Jobs(namespace).Delete(ctx, jobName, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	timeoutSeconds := int64(60)
+	watcher, err := k.Clientset.BatchV1().Jobs(namespace).Watch(ctx, metav1.ListOptions{
+		FieldSelector:  "metadata.name=" + jobName,
+		TimeoutSeconds: &timeoutSeconds,
+	})
+	if err != nil {
+		return err
+	}
+
+	for event := range watcher.ResultChan() {
+		if event.Type == watch.Deleted {
+			log.Infof("[Deleted] Job %s\n", jobName)
+			break
+		}
+	}
+	return nil
+}
+
+func (k *KubernetesCluster) CleanupJob(namespace string, jobName string) error {
+	ctx := context.TODO()
+	timeoutSeconds := int64(60)
+	err := k.DeleteJob(namespace, jobName)
+	if err != nil {
+		return err
+	}
+
+	err = k.Clientset.CoreV1().Pods(namespace).DeleteCollection(ctx,
+		metav1.DeleteOptions{},
+		metav1.ListOptions{
+			LabelSelector:  "job-name=" + jobName,
+			TimeoutSeconds: &timeoutSeconds,
+		})
+	if err != nil {
+		return err
+	}
+
+	watcher, err := k.Clientset.BatchV1().Jobs(namespace).Watch(ctx, metav1.ListOptions{
+		LabelSelector:  "job-name=" + jobName,
+		TimeoutSeconds: &timeoutSeconds,
+	})
+	if err != nil {
+		return err
+	}
+
+	for event := range watcher.ResultChan() {
+
+		if event.Type == watch.Deleted {
+			log.Infof("[Deleted] Job %s\n", jobName)
+		}
+	}
+
+	return nil
 }

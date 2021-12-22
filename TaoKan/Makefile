@@ -6,6 +6,9 @@ build: tidy
 	GOOS=darwin go build -o ${BINARY_PATH}/${BINARY_NAME}-darwin main.go
 	GOARCH=amd64 GOOS=linux go build -o ${BINARY_PATH}/${BINARY_NAME}-linux main.go
 
+build-static: tidy
+	GOARCH=amd64 GOOS=linux go build -tags netgo -ldflags '-extldflags "-static"' -o ${BINARY_PATH}/${BINARY_NAME}-static-linux main.go
+
 run-client: build
 	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} client -r localhost
 

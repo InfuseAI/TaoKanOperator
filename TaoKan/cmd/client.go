@@ -3,6 +3,7 @@ package cmd
 import (
 	"TaoKanOperator/TaoKan/commander"
 	"TaoKanOperator/TaoKan/k8s"
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"os"
@@ -22,8 +23,81 @@ var clientCmd = &cobra.Command{
 	},
 }
 
+var rsyncCmd = &cobra.Command{
+	Use:   "rsync <pvc-name>",
+	Short: "Rsync the selected pvc to remote cluster",
+	Long:  ``,
+	Args:  cobra.RangeArgs(1, 1),
+	Run: func(cmd *cobra.Command, args []string) {
+		log.Infoln("Start TaoKan to transfer data to remote cluster by rsync")
+		pvcName := args[0]
+		k8s := KubernetesAPI.GetInstance(KubeConfig)
+
+		usedByPods, err := k8s.ListPodsUsePvc(Namespace, pvcName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if len(usedByPods) > 0 {
+			log.Warnf("[Skip] Pvc %s is used by Pod %s\n", pvcName, usedByPods[0].Name)
+		}
+
+		// Build the connection with Server
+		log.Infoln("Connecting to server ...")
+		config := commander.Config{
+			Namespace:  Namespace,
+			KubeConfig: KubeConfig,
+			Remote:     RemoteCluster,
+			Port:       RemotePort,
+		}
+		c, err := commander.StartClient(config)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer func() {
+			log.Infoln("Closed ssh connection")
+			c.Close()
+		}()
+
+		output, err := c.Run("mount", pvcName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Infoln(output)
+
+		// Launch Rsync worker
+		err = k8s.LaunchRsyncWorkerJob(RemoteCluster, Namespace, pvcName)
+		if err != nil {
+			log.Fatal(err)
+		}
+	},
+}
+
+var cleanupCmd = &cobra.Command{
+	Use:   "cleanup <pvc-name>",
+	Short: "Cleanup the existing rsync worker pod",
+	Long:  ``,
+	Args:  cobra.RangeArgs(1, 1),
+	Run: func(cmd *cobra.Command, args []string) {
+		pvcName := args[0]
+		log.Infoln("Start cleanup the rsync worker pods related with pvc " + pvcName)
+		k8s := KubernetesAPI.GetInstance(KubeConfig)
+		_, err := k8s.ListPodsUsePvc(Namespace, pvcName)
+		if err != nil {
+			log.Warn(err)
+			return
+		}
+		jobName := fmt.Sprintf("rsync-worker-%s", pvcName)
+		err = k8s.CleanupJob(Namespace, jobName)
+		if err != nil {
+			log.Fatal(err)
+		}
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(clientCmd)
+	rootCmd.AddCommand(cleanupCmd)
+	clientCmd.AddCommand(rsyncCmd)
 
 	// Here you will define your flags and configuration settings.
 
@@ -36,7 +110,6 @@ func init() {
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
-	// clientCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 func clientEntrypoint(cmd *cobra.Command, args []string) {
@@ -74,7 +147,7 @@ func clientEntrypoint(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Infoln(string(out))
+	log.Infoln(out)
 	// Transfer data processes
 }
 

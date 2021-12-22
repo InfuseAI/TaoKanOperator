@@ -9,10 +9,13 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	"io"
 	"strings"
+	"sync"
 )
 
 var KubeConfig string
 var Namespace string
+
+var lock = &sync.Mutex{}
 
 type Mode string
 
@@ -22,6 +25,9 @@ const (
 )
 
 const welcomeMsg = "[TaoKan Server]\n"
+
+var clientInstance *Commander
+var serverInstance *Commander
 
 type Action struct {
 	Names      []string
@@ -79,7 +85,7 @@ func serverCommandDispatcher(c *Commander, w io.Writer, commands []string) error
 }
 
 func clientCommandDispatcher(c *Commander, command string, args []string) (string, error) {
-	log.Infof("[Run] command '%s'\n", command)
+	log.Infof("[Run] Command: `%s`\n", command)
 	if command == "" {
 		return "", errors.New("[Error] No command provided.\n")
 	}
@@ -99,13 +105,13 @@ func StartServer(config Config) error {
 	Namespace = config.Namespace
 	ssh.Handle(func(s ssh.Session) {
 		io.WriteString(s, welcomeMsg)
-		log.Infoln("[Receive] Command", s.Command())
+		log.Infof("[Receive] Command: `%s`", strings.Join(s.Command(), " "))
 		err := serverCommandDispatcher(commander, s, s.Command())
 		if err != nil {
 			io.WriteString(s, "[Error] "+err.Error()+"\n")
 			log.Error(err)
 		}
-		log.Infoln("[Closed]", s.Command())
+		log.Infof("[Closed] Command: `%s`", strings.Join(s.Command(), " "))
 	})
 	addr := fmt.Sprintf(":%d", config.Port)
 	go log.Fatal(ssh.ListenAndServe(addr, nil))
@@ -113,31 +119,34 @@ func StartServer(config Config) error {
 }
 
 func StartClient(config Config) (*Commander, error) {
-	commander := &Commander{
-		Port:    config.Port,
-		Remote:  config.Remote,
-		Mode:    ClientMode,
-		Actions: actions,
-	}
-	KubeConfig = config.KubeConfig
-	Namespace = config.Namespace
+	if clientInstance == nil {
+		lock.Lock()
+		defer lock.Unlock()
+		clientInstance = &Commander{
+			Port:    config.Port,
+			Remote:  config.Remote,
+			Mode:    ClientMode,
+			Actions: actions,
+		}
+		KubeConfig = config.KubeConfig
+		Namespace = config.Namespace
 
-	auth, _ := goph.UseAgent()
-	sshConfig := &goph.Config{
-		User:     "rsync",
-		Addr:     config.Remote,
-		Port:     config.Port,
-		Auth:     auth,
-		Timeout:  goph.DefaultTimeout,
-		Callback: gossh.InsecureIgnoreHostKey(),
+		auth, _ := goph.UseAgent()
+		sshConfig := &goph.Config{
+			User:     "rsync",
+			Addr:     config.Remote,
+			Port:     config.Port,
+			Auth:     auth,
+			Timeout:  goph.DefaultTimeout,
+			Callback: gossh.InsecureIgnoreHostKey(),
+		}
+		client, err := goph.NewConn(sshConfig)
+		if err != nil {
+			log.Fatal(err)
+		}
+		clientInstance.client = client
 	}
-	client, err := goph.NewConn(sshConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
-	commander.client = client
-
-	return commander, nil
+	return clientInstance, nil
 }
 
 func (c *Commander) Close() {

@@ -28,7 +28,7 @@ HOST *
   StrictHostKeyChecking no
 HOST remote-rsync-server
   User root
-  Hostname rsync-server.hub
+  Hostname ${REMOTE_SERVER_NAME:-rsync-server}.${REMOTE_NAMESPACE:-hub}
   Port 22
   ForwardAgent yes
   ProxyCommand ssh -W %h:%p -i ~/.ssh/id_rsa limited-user@${REMOTE_K8S_CLUSTER} -p 2222
