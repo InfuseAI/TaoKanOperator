@@ -32,7 +32,7 @@ func GetInstance(kubeconfig string) *KubernetesCluster {
 		lock.Lock()
 		defer lock.Unlock()
 		if instance == nil {
-			log.Infoln("Create k8s instance")
+			log.Infoln("Init k8s instance")
 			instance = &KubernetesCluster{}
 			err := instance.init(kubeconfig)
 			if err != nil {

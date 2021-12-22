@@ -7,7 +7,7 @@ build: tidy
 	GOARCH=amd64 GOOS=linux go build -o ${BINARY_PATH}/${BINARY_NAME}-linux main.go
 
 run-client: build
-	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} client
+	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} client -r localhost
 
 run-server: build
 	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} server
