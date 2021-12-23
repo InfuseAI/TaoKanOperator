@@ -1,7 +1,7 @@
 package main
 
 import (
-	"TaoKanOperator/TaoKan/cmd"
+	"TaoKan/cmd"
 )
 
 func main() {

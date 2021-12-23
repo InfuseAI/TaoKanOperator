@@ -15,6 +15,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,14 @@ type KubernetesCluster struct {
 }
 
 var instance *KubernetesCluster
+
+func fileExists(name string) bool {
+	_, err := os.Stat(name)
+	if err == nil {
+		return true
+	}
+	return false
+}
 
 func GetInstance(kubeconfig string) *KubernetesCluster {
 	if instance == nil {
@@ -45,7 +54,7 @@ func GetInstance(kubeconfig string) *KubernetesCluster {
 }
 
 func (k *KubernetesCluster) init(kubeconfig string) error {
-	if kubeconfig != "" {
+	if kubeconfig != "" && fileExists(kubeconfig) {
 		// use the current context in kubeconfig
 		config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 		if err != nil {

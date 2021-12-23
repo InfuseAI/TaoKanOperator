@@ -1,7 +1,7 @@
 package commander
 
 import (
-	KubernetesAPI "TaoKanOperator/TaoKan/k8s"
+	KubernetesAPI "TaoKan/k8s"
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"

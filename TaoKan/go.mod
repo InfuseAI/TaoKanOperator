@@ -1,4 +1,4 @@
-module TaoKanOperator
+module TaoKan
 
 go 1.17
 

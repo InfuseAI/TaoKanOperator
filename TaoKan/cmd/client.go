@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"TaoKanOperator/TaoKan/commander"
-	"TaoKanOperator/TaoKan/k8s"
+	"TaoKan/commander"
+	KubernetesAPI "TaoKan/k8s"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"

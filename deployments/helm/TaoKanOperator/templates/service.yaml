@@ -1,0 +1,17 @@
+{{- if .Values.taoKan.serverMode }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "TaoKanOperator.fullname" . }}
+  labels:
+    {{- include "TaoKanOperator.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      protocol: TCP
+      targetPort: 22
+      name: ssh
+  selector:
+    {{- include "TaoKanOperator.selectorLabels" . | nindent 4 }}
+{{- end }}
