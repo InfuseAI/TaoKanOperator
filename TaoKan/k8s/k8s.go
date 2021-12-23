@@ -134,7 +134,7 @@ func (k *KubernetesCluster) DeletePod(namespace string, podName string) error {
 
 	for event := range watcher.ResultChan() {
 		if event.Type == watch.Deleted {
-			log.Infof("[Deleted] Pod %s\n", podName)
+			log.Infof("[Deleted] Pod %s", podName)
 			break
 		}
 	}
@@ -221,7 +221,7 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 	for i := 1; i <= retryTimes; i++ {
 		svc, err = k.Clientset.CoreV1().Services(namespace).Get(context.TODO(), podTemplate.Name, metav1.GetOptions{})
 		if err != nil {
-			log.Warnf("Get service %s failed: %v, retry #%d ...\n", podTemplate.Name, err, i)
+			log.Warnf("Get service %s failed: %v, retry #%d ...", podTemplate.Name, err, i)
 			time.Sleep(retryDuration)
 			continue
 		}
@@ -230,7 +230,7 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 	if err != nil {
 		return err
 	}
-	log.Infof("Service %s found\n", svc.Name)
+	log.Infof("Service %s found", svc.Name)
 
 	// Wait until rsync-server pod ready
 	selector := "metadata.name=" + podTemplate.Name
@@ -263,11 +263,11 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 			msg = containerState.Terminated.Reason
 		}
 
-		log.Infof("Pod: %s Status: %v\n", pod.Name, msg)
+		log.Infof("Pod: %s Status: %v", pod.Name, msg)
 		if pod.Status.Phase == v1.PodPending {
 			continue
 		} else if pod.Status.Phase == v1.PodRunning {
-			log.Infof("[Ready] %s\n", pod.Name)
+			log.Infof("[Ready] %s", pod.Name)
 			isRsyncServerReady = true
 			break
 		} else {
@@ -320,7 +320,7 @@ func (k *KubernetesCluster) LaunchRsyncWorkerJob(remote string, namespace string
 		return err
 	}
 
-	log.Infof("Job %s created\n", jobTemplate.Name)
+	log.Infof("Job %s created", jobTemplate.Name)
 	return nil
 }
 
@@ -341,7 +341,7 @@ func (k *KubernetesCluster) DeleteJob(namespace string, jobName string) error {
 
 	for event := range watcher.ResultChan() {
 		if event.Type == watch.Deleted {
-			log.Infof("[Deleted] Job %s\n", jobName)
+			log.Infof("[Deleted] Job %s", jobName)
 			break
 		}
 	}
@@ -377,7 +377,7 @@ func (k *KubernetesCluster) CleanupJob(namespace string, jobName string) error {
 	for event := range watcher.ResultChan() {
 
 		if event.Type == watch.Deleted {
-			log.Infof("[Deleted] Job %s\n", jobName)
+			log.Infof("[Deleted] Job %s", jobName)
 		}
 	}
 

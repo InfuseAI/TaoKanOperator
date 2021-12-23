@@ -67,7 +67,7 @@ type Config struct {
 
 func serverCommandDispatcher(c *Commander, w io.Writer, commands []string) error {
 	if len(commands) == 0 {
-		return errors.New("[Error] No command provided.\n")
+		return errors.New("[Error] No command provided.")
 	}
 	cmd := commands[0]
 	for _, action := range c.Actions {
@@ -81,13 +81,13 @@ func serverCommandDispatcher(c *Commander, w io.Writer, commands []string) error
 			}
 		}
 	}
-	return errors.New("Unsupported command '" + cmd + "'\n")
+	return errors.New("Unsupported command '" + cmd + "'")
 }
 
 func clientCommandDispatcher(c *Commander, command string, args []string) (string, error) {
-	log.Infof("[Run] Command: `%s`\n", command)
+	log.Infof("[Run] Command: `%s`", command)
 	if command == "" {
-		return "", errors.New("[Error] No command provided.\n")
+		return "", errors.New("[Error] No command provided.")
 	}
 	cmd := fmt.Sprintf("%s %s", command, strings.Join(args, " "))
 	outBytes, err := c.client.Run(cmd)
@@ -108,8 +108,9 @@ func StartServer(config Config) error {
 		log.Infof("[Receive] Command: `%s`", strings.Join(s.Command(), " "))
 		err := serverCommandDispatcher(commander, s, s.Command())
 		if err != nil {
-			io.WriteString(s, "[Error] "+err.Error()+"\n")
+			io.WriteString(s, "[Error] "+err.Error())
 			log.Error(err)
+			s.Close()
 		}
 		log.Infof("[Closed] Command: `%s`", strings.Join(s.Command(), " "))
 	})

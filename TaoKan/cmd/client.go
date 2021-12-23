@@ -38,7 +38,7 @@ var rsyncCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 		if len(usedByPods) > 0 {
-			log.Warnf("[Skip] Pvc %s is used by Pod %s\n", pvcName, usedByPods[0].Name)
+			log.Warnf("[Skip] Pvc %s is used by Pod %s", pvcName, usedByPods[0].Name)
 		}
 
 		// Build the connection with Server
@@ -59,10 +59,13 @@ var rsyncCmd = &cobra.Command{
 		}()
 
 		output, err := c.Run("mount", pvcName)
-		if err != nil {
-			log.Fatal(err)
+		if output != "" {
+			log.Infoln(output)
 		}
-		log.Infoln(output)
+		if err != nil {
+			log.Error(err)
+			return
+		}
 
 		// Launch Rsync worker
 		err = k8s.LaunchRsyncWorkerJob(RemoteCluster, Namespace, pvcName)

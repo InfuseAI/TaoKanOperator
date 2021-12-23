@@ -44,7 +44,7 @@ func serverEntrypoint(cmd *cobra.Command, args []string) {
 	log.Infoln("kubeconfig:", KubeConfig)
 	log.Infoln("namespace:", Namespace)
 
-	log.Infof("Start ssh server at %d\n", serverPort)
+	log.Infof("Start ssh server at %d", serverPort)
 	config := commander.Config{
 		KubeConfig: KubeConfig,
 		Namespace:  Namespace,

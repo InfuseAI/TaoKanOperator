@@ -27,7 +27,7 @@ func status(w io.Writer, args []string) error {
 
 func mountPvc(w io.Writer, args []string) error {
 	if len(args) < 1 {
-		return errors.New("[Error] Should provide PVC.\n")
+		return errors.New("[Error] Should provide PVC.")
 	}
 	pvcName := args[0]
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
@@ -59,7 +59,7 @@ func mountPvc(w io.Writer, args []string) error {
 			return err
 		}
 	} else {
-		log.Warnf("[SKip] pod rsync-worker" + pvcName + " is already running\n")
+		log.Warnf("[SKip] pod rsync-worker" + pvcName + " is already running")
 	}
 
 	return nil
@@ -67,7 +67,7 @@ func mountPvc(w io.Writer, args []string) error {
 
 func umountPvc(w io.Writer, args []string) error {
 	if len(args) < 1 {
-		return errors.New("[Error] Should provide PVC.\n")
+		return errors.New("[Error] Should provide PVC.")
 	}
 	pvcName := args[0]
 
@@ -104,7 +104,7 @@ func umountPvc(w io.Writer, args []string) error {
 	}
 
 	if isRsyncServerRunning {
-		log.Infof("[Delete] Pod %s\n", rsyncServerPodName)
+		log.Infof("[Delete] Pod %s", rsyncServerPodName)
 		err = k8s.DeletePod(Namespace, rsyncServerPodName)
 		if err != nil {
 			return err
