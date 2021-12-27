@@ -27,6 +27,12 @@ type KubernetesCluster struct {
 	Clientset *kubernetes.Clientset
 }
 
+const (
+	UserPvcPrefix    string = "claim-"
+	ProjectPvcPrefix string = "data-nfs-project-"
+	DatasetPvcPrefix string = "data-nfs-dataset-"
+)
+
 var instance *KubernetesCluster
 
 func fileExists(name string) bool {
@@ -195,6 +201,26 @@ func (k *KubernetesCluster) ListDatasetPvc(namespace string) ([]v1.PersistentVol
 	})
 }
 
+func (k *KubernetesCluster) ShowPvcStatus(namespace string, pvcs []v1.PersistentVolumeClaim) (string, error) {
+	var content string
+
+	for _, pvc := range pvcs {
+		content += fmt.Sprintf("\t%s\n", pvc.Name)
+		pods, err := k.ListPodsUsePvc(namespace, pvc.Name)
+		if err != nil {
+			return "", err
+		}
+		if len(pods) > 0 {
+			content += "\t\tUsed by: "
+			for _, pod := range pods {
+				content += fmt.Sprintf("%s ", pod.Name)
+			}
+			content += "\n"
+		}
+	}
+	return content, nil
+}
+
 //go:embed rsync-server.yaml
 var RsyncServerYamlTemplate []byte
 
@@ -350,12 +376,47 @@ func (k *KubernetesCluster) DeleteJob(namespace string, jobName string) error {
 
 func (k *KubernetesCluster) CleanupJob(namespace string, jobName string) error {
 	ctx := context.TODO()
-	timeoutSeconds := int64(60)
+
 	err := k.DeleteJob(namespace, jobName)
 	if err != nil {
 		return err
 	}
 
+	ch := make(chan error)
+	go func() {
+		var err error
+		log.Infof("[Wait] Existing pods all deleted")
+		timeoutSeconds := int64(60)
+		watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
+			LabelSelector:  "job-name=" + jobName,
+			TimeoutSeconds: &timeoutSeconds,
+		})
+		if err != nil {
+			ch <- err
+		}
+
+		podCounter := 0
+		for event := range watcher.ResultChan() {
+			pod, ok := event.Object.(*v1.Pod)
+			if !ok {
+				break
+			}
+			if event.Type == watch.Added {
+				podCounter++
+			}
+			if event.Type == watch.Deleted {
+				log.Infof("[Cleanup] Pod %s", pod.Name)
+				podCounter--
+				if podCounter == 0 {
+					break
+				}
+			}
+		}
+		ch <- err
+	}()
+
+	timeoutSeconds := int64(5)
+	log.Infof("[Cleanup] Existing pods triggered by job %s", jobName)
 	err = k.Clientset.CoreV1().Pods(namespace).DeleteCollection(ctx,
 		metav1.DeleteOptions{},
 		metav1.ListOptions{
@@ -366,19 +427,9 @@ func (k *KubernetesCluster) CleanupJob(namespace string, jobName string) error {
 		return err
 	}
 
-	watcher, err := k.Clientset.BatchV1().Jobs(namespace).Watch(ctx, metav1.ListOptions{
-		LabelSelector:  "job-name=" + jobName,
-		TimeoutSeconds: &timeoutSeconds,
-	})
+	err = <-ch
 	if err != nil {
 		return err
-	}
-
-	for event := range watcher.ResultChan() {
-
-		if event.Type == watch.Deleted {
-			log.Infof("[Deleted] Job %s", jobName)
-		}
 	}
 
 	return nil

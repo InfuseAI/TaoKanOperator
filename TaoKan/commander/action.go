@@ -3,25 +3,48 @@ package commander
 import (
 	KubernetesAPI "TaoKan/k8s"
 	"errors"
-	"fmt"
 	log "github.com/sirupsen/logrus"
 	"io"
 	"strings"
 )
 
 func status(w io.Writer, args []string) error {
-
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
-	pods, err := k8s.ListPods(Namespace)
+	var result string
+
+	userPvcs, err := k8s.ListUserPvc(Namespace)
 	if err != nil {
 		return err
 	}
-
-	result := ""
-	for _, pod := range pods {
-		result += fmt.Sprintf("%s\n", pod.Name)
+	io.WriteString(w, "[User] PVC\n")
+	result, err = k8s.ShowPvcStatus(Namespace, userPvcs)
+	if err != nil {
+		return err
 	}
 	io.WriteString(w, result)
+
+	datasetPvcs, err := k8s.ListDatasetPvc(Namespace)
+	if err != nil {
+		return err
+	}
+	io.WriteString(w, "[Dataset] PVC\n")
+	result, err = k8s.ShowPvcStatus(Namespace, datasetPvcs)
+	if err != nil {
+		return err
+	}
+	io.WriteString(w, result)
+
+	projectPvcs, err := k8s.ListProjectPvc(Namespace)
+	if err != nil {
+		return err
+	}
+	io.WriteString(w, "[Project] PVC\n")
+	result, err = k8s.ShowPvcStatus(Namespace, projectPvcs)
+	if err != nil {
+		return err
+	}
+	io.WriteString(w, result)
+
 	return nil
 }
 
