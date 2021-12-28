@@ -1,44 +1,43 @@
-apiVersion: batch/v1
-kind: Job
+apiVersion: v1
+kind: Pod
 metadata:
   name: rsync-worker
   namespace: hub
   labels:
     app: rsync-worker
+    role: rsync-worker
     managed-by: TaoKan
     mountPvc: claim-kent # Fill correct data
 spec:
-  template:
-    spec:
-      containers:
-      - name: rsync-worker
-        image: infuseai/rsync-server:latest
-        imagePullPolicy: Always
-        command: ['/bin/bash', '/root/start_rsync.sh']
-        env:
-        - name: REMOTE_SERVER_NAME
-          value: rsync-server
-        - name: REMOTE_NAMESPACE
-          value: hub
-        - name: REMOTE_K8S_CLUSTER
-          value: hub.a.demo.primehub.io
-        - name: SSH_PRIVATE_KEY
-          valueFrom:
-            secretKeyRef:
-              name: rsync-ssh-key
-              key: privatekey
-        volumeMounts:
-        - name: data-volume
-          mountPath: /data
-        resources:
-          requests:
-            cpu: 200m
-            memory: 512Mi
-          limits:
-            cpu: 1000m
-            memory: 512Mi
-      restartPolicy: Never
-      volumes:
-      - name: data-volume
-        persistentVolumeClaim:
-          claimName: claim-kent # Fill correct data
+  containers:
+  - name: rsync-worker
+    image: infuseai/rsync-server:latest
+    imagePullPolicy: Always
+    command: ['/bin/bash', '/root/start_rsync.sh']
+    env:
+    - name: REMOTE_SERVER_NAME
+      value: rsync-server
+    - name: REMOTE_NAMESPACE
+      value: hub
+    - name: REMOTE_K8S_CLUSTER
+      value: hub.a.demo.primehub.io
+    - name: SSH_PRIVATE_KEY
+      valueFrom:
+        secretKeyRef:
+          name: rsync-ssh-key
+          key: privatekey
+    volumeMounts:
+    - name: data-volume
+      mountPath: /data
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+  restartPolicy: OnFailure
+  volumes:
+  - name: data-volume
+    persistentVolumeClaim:
+      claimName: claim-kent # Fill correct data

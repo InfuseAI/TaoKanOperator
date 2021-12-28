@@ -51,4 +51,5 @@ func init() {
 	}
 	rootCmd.PersistentFlags().StringVar(&KubeConfig, "kubeconfig", kubeconfig, "absolute path to the kubeconfig file")
 	rootCmd.PersistentFlags().StringVarP(&Namespace, "namespace", "n", "hub", "default namespace of k8s")
+	rootCmd.PersistentFlags().Bool("debug", false, "Enable Debug verbose")
 }

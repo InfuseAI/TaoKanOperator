@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -311,42 +310,121 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 //go:embed rsync-worker.yaml
 var RsyncWorkerYamlTemplate []byte
 
-func (k *KubernetesCluster) LaunchRsyncWorkerJob(remote string, namespace string, pvcName string) error {
-	var jobTemplate batchv1.Job
-	err := yaml.Unmarshal(RsyncWorkerYamlTemplate, &jobTemplate)
+func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string, pvcName string, retryTimes int32) error {
+	var podTemplate v1.Pod
+	err := yaml.Unmarshal(RsyncWorkerYamlTemplate, &podTemplate)
 	if err != nil {
 		return err
 	}
 
-	// Prepare the job template. This
-	jobTemplate.Name = fmt.Sprintf("rsync-worker-%s", pvcName)
-	jobTemplate.Namespace = namespace
-	jobTemplate.Labels["mountPvc"] = pvcName
-	jobTemplate.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim.ClaimName = pvcName
-	for i, env := range jobTemplate.Spec.Template.Spec.Containers[0].Env {
+	podTemplate.Name = fmt.Sprintf("rsync-worker-%s", pvcName)
+	podTemplate.Namespace = namespace
+	podTemplate.Labels["mountPvc"] = pvcName
+	podTemplate.Spec.Volumes[0].PersistentVolumeClaim.ClaimName = pvcName
+	for i, env := range podTemplate.Spec.Containers[0].Env {
 		switch env.Name {
 		case "REMOTE_K8S_CLUSTER":
-			jobTemplate.Spec.Template.Spec.Containers[0].Env[i].Value = remote
+			podTemplate.Spec.Containers[0].Env[i].Value = remote
 		case "REMOTE_SERVER_NAME":
-			jobTemplate.Spec.Template.Spec.Containers[0].Env[i].Value = fmt.Sprintf("rsync-server-%s", pvcName)
+			podTemplate.Spec.Containers[0].Env[i].Value = fmt.Sprintf("rsync-server-%s", pvcName)
 		case "REMOTE_NAMESPACE":
-			jobTemplate.Spec.Template.Spec.Containers[0].Env[i].Value = namespace
+			podTemplate.Spec.Containers[0].Env[i].Value = namespace
 		}
 	}
+	if retryTimes == 0 {
+		podTemplate.Spec.RestartPolicy = v1.RestartPolicyNever
+	}
 
-	// Delete the existing job
-	err = k.DeleteJob(namespace, jobTemplate.Name)
+	// Delete the existing pod
+	err = k.DeletePod(namespace, podTemplate.Name)
 	if err != nil {
 		log.Warn(err)
 	}
 
-	// Apply Job
-	_, err = k.Clientset.BatchV1().Jobs(namespace).Create(context.TODO(), &jobTemplate, metav1.CreateOptions{})
+	// Apply pod
+	_, err = k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	log.Infof("Pod %s created", podTemplate.Name)
+
+	// Wait until rsync-worker pod ready
+	selector := "metadata.name=" + podTemplate.Name
+	timeoutSeconds := int64(60 * 5)
+	ctx := context.TODO()
+	watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
+		FieldSelector:  selector,
+		TimeoutSeconds: &timeoutSeconds,
+	})
 	if err != nil {
 		return err
 	}
 
-	log.Infof("Job %s created", jobTemplate.Name)
+	isRsyncWorkerCompleted := false
+watcherLoop:
+	for event := range watcher.ResultChan() {
+		if event.Object == nil {
+			break watcherLoop
+		}
+		pod, ok := event.Object.(*v1.Pod)
+		if !ok {
+			break watcherLoop
+		}
+		var status string
+		var reason string
+		if len(pod.Status.ContainerStatuses) > 0 {
+			containerState := pod.Status.ContainerStatuses[0].State
+			if pod.Status.ContainerStatuses[0].State.Waiting != nil {
+				reason = containerState.Waiting.Reason
+				status = "Waiting"
+			} else if containerState.Running != nil {
+				status = "Running"
+			} else if containerState.Terminated != nil {
+				reason = containerState.Terminated.Reason
+				status = "Terminated"
+			}
+		} else {
+			status = "Pending"
+		}
+		log.Debugf("Pod: %s Phase: %v status: %v", pod.Name, pod.Status.Phase, status)
+		switch pod.Status.Phase {
+		case v1.PodPending:
+			continue
+		case v1.PodRunning:
+			if status != "Running" {
+				if status == "Terminated" && pod.Status.ContainerStatuses[0].RestartCount > 0 {
+					restartCount := pod.Status.ContainerStatuses[0].RestartCount
+					log.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
+				} else if status == "Waiting" {
+					msg := pod.Status.ContainerStatuses[0].State.Waiting.Message
+					log.Errorf("[%v] Pod: %s reason: %v message: %v", status, pod.Name, reason, msg)
+				}
+				if pod.Status.ContainerStatuses[0].RestartCount >= retryTimes {
+					log.Errorf("Abort after retry %d times", retryTimes)
+					break watcherLoop
+				}
+			} else {
+				log.Infof("[Running] Pod: %s", pod.Name)
+			}
+		case v1.PodSucceeded:
+			log.Infof("[Completed] Pod: %s", pod.Name)
+			isRsyncWorkerCompleted = true
+			break watcherLoop
+		case v1.PodFailed:
+			restartCount := pod.Status.ContainerStatuses[0].RestartCount
+			log.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
+			break watcherLoop
+		default:
+			log.Errorf("Unsupported phase: %v", pod.Status.Phase)
+		}
+	}
+	if !isRsyncWorkerCompleted {
+		if podTemplate.Spec.RestartPolicy != v1.RestartPolicyNever {
+			k.DeletePod(namespace, podTemplate.Name)
+		}
+
+		return errors.New(fmt.Sprintf("Failed to backup Pvc %s", pvcName))
+	}
 	return nil
 }
 

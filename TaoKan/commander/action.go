@@ -12,6 +12,7 @@ func status(w io.Writer, args []string) error {
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
 	var result string
 
+	log.Infof("List User PVC ...")
 	userPvcs, err := k8s.ListUserPvc(Namespace)
 	if err != nil {
 		return err
@@ -22,7 +23,9 @@ func status(w io.Writer, args []string) error {
 		return err
 	}
 	io.WriteString(w, result)
+	log.Infof("Found %d PVCs", len(userPvcs))
 
+	log.Infof("List Dataset PVC ...")
 	datasetPvcs, err := k8s.ListDatasetPvc(Namespace)
 	if err != nil {
 		return err
@@ -33,7 +36,9 @@ func status(w io.Writer, args []string) error {
 		return err
 	}
 	io.WriteString(w, result)
+	log.Infof("Found %d PVCs", len(datasetPvcs))
 
+	log.Infof("List Project PVC ...")
 	projectPvcs, err := k8s.ListProjectPvc(Namespace)
 	if err != nil {
 		return err
@@ -44,6 +49,7 @@ func status(w io.Writer, args []string) error {
 		return err
 	}
 	io.WriteString(w, result)
+	log.Infof("Found %d PVCs", len(projectPvcs))
 
 	return nil
 }
@@ -64,26 +70,28 @@ func mountPvc(w io.Writer, args []string) error {
 	if len(usedByPods) > 0 {
 		var pods []string
 		for _, pod := range usedByPods {
-			if val, ok := pod.Labels["managed-by"]; ok && val == "TaoKan" {
+			managedBy := pod.Labels["managed-by"]
+			role := pod.Labels["role"]
+			if managedBy == "TaoKan" && role == "rsync-server" {
 				isRsyncServerRunning = true
 			}
 			pods = append(pods, pod.Name)
 		}
 		log.Warnf("[Used By] Pod " + strings.Join(pods, ","))
-		result += "Mounted by pod: " + strings.Join(pods, ",") + "\n"
 	}
 
-	io.WriteString(w, result)
 	if isRsyncServerRunning == false {
 		// Launch rsync-server
-		log.Infoln("[Launch] rsync-worker to mount pvc " + pvcName)
+		log.Infoln("[Launch] rsync-server to mount pvc " + pvcName)
 		err := k8s.LaunchRsyncServerPod(Namespace, pvcName)
 		if err != nil {
 			return err
 		}
 	} else {
-		log.Warnf("[SKip] pod rsync-worker" + pvcName + " is already running")
+		log.Warnf("[SKip] pod rsync-server-" + pvcName + " is already running")
 	}
+	result = "Server pod ready: rsync-worker-" + pvcName
+	io.WriteString(w, result)
 
 	return nil
 }

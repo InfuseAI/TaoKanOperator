@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eo pipefail
 
 start_rsync() {
   # Check installed rsync

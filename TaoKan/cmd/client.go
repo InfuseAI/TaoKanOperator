@@ -39,6 +39,12 @@ var rsyncCmd = &cobra.Command{
 	Long:  ``,
 	Args:  cobra.RangeArgs(1, 1),
 	Run: func(cmd *cobra.Command, args []string) {
+
+		debug, _ := cmd.Flags().GetBool("debug")
+		if debug {
+			log.SetLevel(log.DebugLevel)
+		}
+
 		log.Infoln("Start TaoKan to transfer data to remote cluster by rsync")
 		pvcName := args[0]
 		k8s := KubernetesAPI.GetInstance(KubeConfig)
@@ -52,25 +58,9 @@ var rsyncCmd = &cobra.Command{
 		}
 
 		// Build the connection with Server
-		log.Infoln("Connecting to server ...")
-		config := commander.Config{
-			Namespace:  Namespace,
-			KubeConfig: KubeConfig,
-			Remote:     RemoteCluster,
-			Port:       RemotePort,
-		}
-		c, err := commander.StartClient(config)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer func() {
-			log.Infoln("Closed ssh connection")
-			c.Close()
-		}()
-
-		output, err := c.Run("mount", pvcName)
-		if output != "" {
-			log.Infoln(output)
+		outputs, err := commanderWrapper(cmd, "mount", pvcName)
+		for _, data := range outputs {
+			log.Infof(data)
 		}
 		if err != nil {
 			log.Error(err)
@@ -78,7 +68,8 @@ var rsyncCmd = &cobra.Command{
 		}
 
 		// Launch Rsync worker
-		err = k8s.LaunchRsyncWorkerJob(RemoteCluster, Namespace, pvcName)
+		retryTimes, _ := cmd.Flags().GetInt32("retry")
+		err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvcName, retryTimes)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -127,7 +118,7 @@ func init() {
 	// and all subcommands, e.g.:
 	// clientCmd.PersistentFlags().String("foo", "", "A help for foo")
 	clientCmd.PersistentFlags().StringVarP(&RemoteCluster, "remote", "r", "", "Remote cluster domain")
-	clientCmd.PersistentFlags().UintVarP(&RemotePort, "port", "p", 2222, "Remote cluster port")
+	clientCmd.PersistentFlags().UintVarP(&RemotePort, "port", "p", 2022, "Remote cluster port")
 	clientCmd.MarkPersistentFlagRequired("remote")
 	clientCmd.PersistentFlags().String("user-list", "", "User whitelist")
 	clientCmd.PersistentFlags().String("user-exclusive-list", "", "User exclusion list")
@@ -135,6 +126,7 @@ func init() {
 	clientCmd.PersistentFlags().String("dataset-exclusive-list", "", "Dataset exclusion list")
 	clientCmd.PersistentFlags().String("project-list", "", "Project whitelist")
 	clientCmd.PersistentFlags().String("project-exclusive-list", "", "Project exclusion list")
+	clientCmd.PersistentFlags().Int32("retry", 0, "Rsync-worker pod restart time")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
@@ -154,39 +146,41 @@ func clientEntrypoint(cmd *cobra.Command, args []string) {
 	//  	User
 	log.Infoln("[TaoKan Client]")
 	//showAvaliblePvcs(Namespace)
-	_, err := prepareBackupPvcList(cmd, Namespace)
+	backupList, err := prepareBackupPvcList(cmd, Namespace)
 	if err != nil {
 		log.WithError(err)
 	}
 
-	return
-
 	// Build the connection with Server
-	log.Debugln("Connecting to server ...")
-	config := commander.Config{
-		Namespace:  Namespace,
-		KubeConfig: KubeConfig,
-		Remote:     RemoteCluster,
-		Port:       RemotePort,
-	}
-	c, err := commander.StartClient(config)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		log.Debugln("Closed ssh connection")
-		c.Close()
-	}()
-	output, err := c.Run("status")
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, data := range strings.Split(output, "\n") {
-		if data != "" {
-			log.Info(data)
+	// Transfer data processes
+	log.Infof("Process User data transfer")
+	for _, pvc := range backupList.userPvcs {
+		// Ask remote cluster to mount PVC by rsync-server pod
+		outputLogs, err := commanderWrapper(cmd, "mount", pvc.Name)
+		if err != nil {
+			log.Warnf("[Skip] pvc %s : %v", pvc.Name, err)
+			continue
+		}
+		isRsyncServerReady := false
+		for _, d := range outputLogs {
+			if d != "" {
+				log.Infof(d)
+				if strings.Contains(d, "Server pod ready:") {
+					isRsyncServerReady = true
+				}
+			}
+		}
+
+		if isRsyncServerReady {
+			k8s := KubernetesAPI.GetInstance(KubeConfig)
+			retryTimes, _ := cmd.Flags().GetInt32("retry")
+			err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, retryTimes)
+			if err != nil {
+				log.Warnf("Failed to launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
+			}
 		}
 	}
-	// Transfer data processes
+	log.Infof("[Completed]")
 }
 
 func showAvaliblePvcs(namespace string) {
@@ -377,4 +371,35 @@ func whiteListFactory(cmd *cobra.Command, namespace string, flagName string) ([]
 		})
 	}
 	return pvcs, nil
+}
+
+func commanderWrapper(cmd *cobra.Command, action string, args ...string) ([]string, error) {
+	namespace, _ := cmd.Flags().GetString("namespace")
+	kubeConfig, _ := cmd.Flags().GetString("kubeconfig")
+	remote, _ := cmd.Flags().GetString("remote")
+	port, _ := cmd.Flags().GetUint("port")
+
+	log.Debugf("Connecting to server %v:%d ...", remote, port)
+	config := commander.Config{
+		Namespace:  namespace,
+		KubeConfig: kubeConfig,
+		Remote:     remote,
+		Port:       port,
+	}
+
+	c, err := commander.StartClient(config)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		log.Debugf("Closed ssh connection")
+		c.Close()
+	}()
+	output, err := c.Run(action, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return strings.Split(output, "\n"), nil
 }

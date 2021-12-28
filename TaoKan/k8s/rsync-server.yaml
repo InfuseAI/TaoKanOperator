@@ -7,6 +7,7 @@ metadata:
     app: jupyterhub
     component: singleuser-server
     ssh-bastion-server/notebook: "true"
+    role: rsync-server
     managed-by: TaoKan
     mountPvc: claim-kent # Fill correct data
 spec:

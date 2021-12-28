@@ -36,7 +36,8 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// serverCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	serverCmd.Flags().UintVarP(&serverPort, "port", "p", 2222, "Server port to listen on")
+	serverCmd.Flags().UintVarP(&serverPort, "port", "p", 2022, "Server port to listen on")
+	serverCmd.PersistentFlags().Int32("retry", 3, "Rsync-server pod restart time")
 }
 
 func serverEntrypoint(cmd *cobra.Command, args []string) {

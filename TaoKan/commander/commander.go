@@ -152,7 +152,10 @@ func StartClient(config Config) (*Commander, error) {
 
 func (c *Commander) Close() {
 	if c.Mode == ClientMode {
+		lock.Lock()
+		defer lock.Unlock()
 		c.client.Close()
+		clientInstance = nil
 	}
 }
 
