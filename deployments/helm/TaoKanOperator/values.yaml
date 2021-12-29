@@ -5,8 +5,20 @@ taoKan:
   serverMode: false
   remotePort: 2022
   remoteCluster: ""
+  retryTimes: "0"
+
+whiteList:
+  user: |
+  project: |
+  dataset: |
+
+exclusiveList:
+  user: |
+  project: |
+  dataset: |
 
 image:
+  registry: docker.io
   repository: infuseai/taokan
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.

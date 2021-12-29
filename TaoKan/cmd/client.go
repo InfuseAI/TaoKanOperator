@@ -40,11 +40,6 @@ var rsyncCmd = &cobra.Command{
 	Args:  cobra.RangeArgs(1, 1),
 	Run: func(cmd *cobra.Command, args []string) {
 
-		debug, _ := cmd.Flags().GetBool("debug")
-		if debug {
-			log.SetLevel(log.DebugLevel)
-		}
-
 		log.Infoln("Start TaoKan to transfer data to remote cluster by rsync")
 		pvcName := args[0]
 		k8s := KubernetesAPI.GetInstance(KubeConfig)
@@ -83,17 +78,54 @@ var cleanupCmd = &cobra.Command{
 	Args:  cobra.RangeArgs(1, 1),
 	Run: func(cmd *cobra.Command, args []string) {
 		pvcName := args[0]
-		log.Infoln("Start cleanup the rsync worker pods related with pvc " + pvcName)
-		k8s := KubernetesAPI.GetInstance(KubeConfig)
-		_, err := k8s.ListPodsUsePvc(Namespace, pvcName)
-		if err != nil {
-			log.Warn(err)
-			return
-		}
-		jobName := fmt.Sprintf("rsync-worker-%s", pvcName)
-		err = k8s.CleanupJob(Namespace, jobName)
-		if err != nil {
-			log.Fatal(err)
+		if pvcName == "ALL" {
+			log.Infof("Start cleanup all the rsync worker & rsync server pods")
+			k8s := KubernetesAPI.GetInstance(KubeConfig)
+			workerPods, err := k8s.ListPodsByFilter(Namespace, func(pod v1.Pod) bool {
+				if strings.HasPrefix(pod.Name, "rsync-worker") {
+					return true
+				}
+				return false
+			})
+			serverPods, err := k8s.ListPodsByFilter(Namespace, func(pod v1.Pod) bool {
+				if strings.HasPrefix(pod.Name, "rsync-server") {
+					return true
+				}
+				return false
+			})
+			if err != nil {
+				log.WithError(err)
+				return
+			}
+			for _, pod := range workerPods {
+				k8s.DeletePod(Namespace, pod.Name)
+			}
+			for _, pod := range serverPods {
+				k8s.DeletePod(Namespace, pod.Name)
+			}
+		} else {
+			log.Infoln("Start cleanup the rsync worker pods related with pvc " + pvcName)
+			k8s := KubernetesAPI.GetInstance(KubeConfig)
+			pods, err := k8s.ListPodsUsePvc(Namespace, pvcName)
+			if err != nil {
+				log.Warn(err)
+				return
+			}
+			rsyncWorkerPodName := fmt.Sprintf("rsync-worker-%s", pvcName)
+
+			isRsyncWorkerFound := false
+			for _, pod := range pods {
+				if rsyncWorkerPodName == pod.Name {
+					log.Infof("[Delete] pod %v", pod.Name)
+					err = k8s.DeletePod(Namespace, pod.Name)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+			}
+			if !isRsyncWorkerFound {
+				log.Warnf("[Skip] Pod %v not found", rsyncWorkerPodName)
+			}
 		}
 	},
 }
@@ -120,13 +152,17 @@ func init() {
 	clientCmd.PersistentFlags().StringVarP(&RemoteCluster, "remote", "r", "", "Remote cluster domain")
 	clientCmd.PersistentFlags().UintVarP(&RemotePort, "port", "p", 2022, "Remote cluster port")
 	clientCmd.MarkPersistentFlagRequired("remote")
+
 	clientCmd.PersistentFlags().String("user-list", "", "User whitelist")
 	clientCmd.PersistentFlags().String("user-exclusive-list", "", "User exclusion list")
 	clientCmd.PersistentFlags().String("dataset-list", "", "Dataset whitelist")
 	clientCmd.PersistentFlags().String("dataset-exclusive-list", "", "Dataset exclusion list")
 	clientCmd.PersistentFlags().String("project-list", "", "Project whitelist")
 	clientCmd.PersistentFlags().String("project-exclusive-list", "", "Project exclusion list")
+
 	clientCmd.PersistentFlags().Int32("retry", 0, "Rsync-worker pod restart time")
+
+	clientCmd.Flags().Bool("daemon", false, "Enable daemon mode")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
@@ -153,8 +189,33 @@ func clientEntrypoint(cmd *cobra.Command, args []string) {
 
 	// Build the connection with Server
 	// Transfer data processes
+	if daemonMode, _ := cmd.Flags().GetBool("daemon"); daemonMode {
+		go transferBackupData(cmd, backupList)
+
+		// Wait forever
+		for {
+			c := make(chan int)
+			<-c
+		}
+	} else {
+		transferBackupData(cmd, backupList)
+	}
+}
+
+func transferBackupData(cmd *cobra.Command, backupList backupList) {
 	log.Infof("Process User data transfer")
-	for _, pvc := range backupList.userPvcs {
+	transferPvcData(cmd, backupList.userPvcs)
+
+	log.Infof("Process Project data transfer")
+	transferPvcData(cmd, backupList.projectPvcs)
+
+	log.Infof("Process Dataset data transfer")
+	transferPvcData(cmd, backupList.datasetPvcs)
+	log.Infof("[Completed] transfer backup data ")
+}
+
+func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
+	for _, pvc := range pvcs {
 		// Ask remote cluster to mount PVC by rsync-server pod
 		outputLogs, err := commanderWrapper(cmd, "mount", pvc.Name)
 		if err != nil {
@@ -176,15 +237,13 @@ func clientEntrypoint(cmd *cobra.Command, args []string) {
 			retryTimes, _ := cmd.Flags().GetInt32("retry")
 			err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, retryTimes)
 			if err != nil {
-				log.Warnf("Failed to launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
+				log.Warnf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
 			}
 		}
 	}
-	log.Infof("[Completed]")
 }
 
 func showAvaliblePvcs(namespace string) {
-	// TODO: Load the pvc transfer list from file
 	var content string
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
 	userPvcs, err := k8s.ListUserPvc(Namespace)
@@ -252,8 +311,10 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 	if err != nil {
 		return
 	}
+
+	log.Infof("[User] backup list")
 	for _, pvc := range pvcs {
-		log.Infof("%s", pvc.Name)
+		log.Infof("\t%s", pvc.Name)
 	}
 	backupList.userPvcs = pvcs
 
@@ -266,8 +327,9 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 	if err != nil {
 		return
 	}
+	log.Infof("[Porject] backup list")
 	for _, pvc := range pvcs {
-		log.Infof("%s", pvc.Name)
+		log.Infof("\t%s", pvc.Name)
 	}
 	backupList.projectPvcs = pvcs
 
@@ -280,8 +342,10 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 	if err != nil {
 		return
 	}
+
+	log.Infof("[Dataset] backup list")
 	for _, pvc := range pvcs {
-		log.Infof("%s", pvc.Name)
+		log.Infof("\t%s", pvc.Name)
 	}
 	backupList.datasetPvcs = pvcs
 
@@ -289,7 +353,7 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 }
 
 func exclusiveListFactory(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim, flagName string) ([]v1.PersistentVolumeClaim, error) {
-	path, err := cmd.PersistentFlags().GetString(flagName)
+	path, err := cmd.Flags().GetString(flagName)
 	if err != nil {
 		return nil, err
 	}
@@ -311,9 +375,9 @@ func exclusiveListFactory(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim, f
 		return nil, errors.New(fmt.Sprintf("Unsupported flag: %v", flagName))
 	}
 	if err != nil {
-		log.Warnf("Skip %s: %v", flagName, err)
+		log.Debugf("[Skip] %s: %v", flagName, err)
 	} else {
-		log.Infof("Load %s from path: %s", flagName, path)
+		log.Debugf("[Load] %s from path: %s", flagName, path)
 		for _, name := range exclusiveList {
 			for i := 0; i < len(pvcs); i++ {
 				pvc := pvcs[i]
@@ -330,7 +394,7 @@ func exclusiveListFactory(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim, f
 func whiteListFactory(cmd *cobra.Command, namespace string, flagName string) ([]v1.PersistentVolumeClaim, error) {
 	var pvcs []v1.PersistentVolumeClaim
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
-	path, err := cmd.PersistentFlags().GetString(flagName)
+	path, err := cmd.Flags().GetString(flagName)
 	if err != nil {
 		return nil, err
 	}
@@ -356,11 +420,14 @@ func whiteListFactory(cmd *cobra.Command, namespace string, flagName string) ([]
 		return nil, errors.New(fmt.Sprintf("Unsupported flag: %v", flagName))
 	}
 
+	if len(whiteList) == 0 {
+		err = errors.New(fmt.Sprintf("White list %v is empty", flagName))
+	}
 	if err != nil {
-		log.Warnf("Skip %s: %v", flagName, err)
+		log.Debugf("[Skip] %s: %v", flagName, err)
 		pvcs, _ = listFunc(namespace)
 	} else {
-		log.Infof("Load %s from path: %s", flagName, path)
+		log.Debugf("[Load] %s from path: %s", flagName, path)
 		pvcs, _ = k8s.ListPvcByFilter(namespace, func(pvc v1.PersistentVolumeClaim) bool {
 			for _, name := range whiteList {
 				if pvc.Name == name || pvc.Name == pvcPrefix+name+pvcPostfix {

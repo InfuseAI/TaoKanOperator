@@ -124,27 +124,33 @@ func (k *KubernetesCluster) ListPodsUsePvc(namespace string, pvcName string) ([]
 
 func (k *KubernetesCluster) DeletePod(namespace string, podName string) error {
 	ctx := context.TODO()
+
+	ch := make(chan error)
+	go func() {
+		timeoutSeconds := int64(60)
+		watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
+			FieldSelector:  "metadata.name=" + podName,
+			TimeoutSeconds: &timeoutSeconds,
+		})
+		if err != nil {
+			ch <- err
+		}
+		for event := range watcher.ResultChan() {
+			if event.Type == watch.Deleted {
+				log.Infof("[Deleted] Pod %s", podName)
+				break
+			}
+		}
+		ch <- nil
+	}()
+
 	err := k.Clientset.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
-	timeoutSeconds := int64(60)
-	watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector:  "metadata.name=" + podName,
-		TimeoutSeconds: &timeoutSeconds,
-	})
-	if err != nil {
-		return err
-	}
 
-	for event := range watcher.ResultChan() {
-		if event.Type == watch.Deleted {
-			log.Infof("[Deleted] Pod %s", podName)
-			break
-		}
-	}
-
-	return nil
+	err = <-ch
+	return err
 }
 
 func (k *KubernetesCluster) GetPvc(namespace string, pvcName string) (*v1.PersistentVolumeClaim, []v1.Pod, error) {
@@ -506,9 +512,5 @@ func (k *KubernetesCluster) CleanupJob(namespace string, jobName string) error {
 	}
 
 	err = <-ch
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }

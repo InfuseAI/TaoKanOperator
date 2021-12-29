@@ -1,8 +1,11 @@
+{{- if .Values.taoKan.serverMode }}
+# Server Mode
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "TaoKanOperator.fullname" . }}
   labels:
+    mode: server
     {{- include "TaoKanOperator.labels" . | nindent 4 }}
 spec:
   replicas: 1
@@ -25,37 +28,24 @@ spec:
       serviceAccountName: {{ include "TaoKanOperator.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      restartPolicy: OnFailure
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{.Values.image.registry | trimSuffix "/" }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - taokan
           args:
-            {{- if .Values.taoKan.serverMode }}
             - "server"
             - "--port"
             - "22"
             - "--namespace"
             - "{{ .Release.Namespace }}"
-            {{- else }}
-            - "client"
-            - "--remote"
-            - "{{ required "A valid .Values.taoKan.remoteCluster entry required!" .Values.taoKan.remoteCluster }}"
-            - "--port"
-            - "{{ .Values.taoKan.remotePort }}"
-            - "--namespace"
-            - "{{ .Release.Namespace }}"
-            {{- end }}
-          {{- if .Values.taoKan.serverMode }}
           ports:
             - name: ssh
               containerPort: 22
               protocol: TCP
-          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}
@@ -70,3 +60,96 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- else }}
+# Client Mode
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "TaoKanOperator.fullname" . }}
+  labels:
+    mode: client
+    {{- include "TaoKanOperator.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "TaoKanOperator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "TaoKanOperator.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "TaoKanOperator.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{.Values.image.registry | trimSuffix "/" }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - taokan
+          args:
+            - "client"
+            - "--daemon"
+            - "--remote"
+            - "{{ required "A valid .Values.taoKan.remoteCluster entry required!" .Values.taoKan.remoteCluster }}"
+            - "--port"
+            - "{{ .Values.taoKan.remotePort }}"
+            - "--namespace"
+            - "{{ .Release.Namespace }}"
+            - "--retry"
+            - "{{ .Values.taoKan.retryTimes }}"
+            - "--user-list"
+            - "/etc/taokan/user/user-list.txt"
+            - "--user-exclusive-list"
+            - "/etc/taokan/user/user-exclusive-list.txt"
+            - "--project-list"
+            - "/etc/taokan/project/project-list.txt"
+            - "--project-exclusive-list"
+            - "/etc/taokan/project/project-exclusive-list.txt"
+            - "--dataset-list"
+            - "/etc/taokan/dataset/dataset-list.txt"
+            - "--dataset-exclusive-list"
+            - "/etc/taokan/dataset/dataset-exclusive-list.txt"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: taokan-user
+              mountPath: /etc/taokan/user
+            - name: taokan-project
+              mountPath: /etc/taokan/project
+            - name: taokan-dataset
+              mountPath: /etc/taokan/dataset
+      volumes:
+        - name: taokan-user
+          configMap:
+            name: taokan-user
+        - name: taokan-project
+          configMap:
+            name: taokan-project
+        - name: taokan-dataset
+          configMap:
+            name: taokan-dataset
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end}}

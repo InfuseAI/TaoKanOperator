@@ -25,11 +25,11 @@ build-static: tidy
 build-image:
 	docker ${DOCKER_BUILD_CMD} -t ${IMAGE_NAME} .
 
-deploy-image:
+deploy-image: build-image
 	docker push ${IMAGE_NAME}
 
 run-client: build
-	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} client -r localhost --retry 0
+	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} client -r localhost --retry 0 --daemon
 
 run-server: build
 	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} server

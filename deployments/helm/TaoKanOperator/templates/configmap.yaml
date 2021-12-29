@@ -1,0 +1,53 @@
+{{- if not .Values.taoKan.serverMode }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taokan-user
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: pre-install
+  labels:
+    app: rsync-worker
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+data:
+  user-list.txt: |
+    {{ .Values.whiteList.user | indent 4 }}
+  user-exclusive-list.txt: |
+    {{ .Values.exclusiveList.user | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taokan-project
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: pre-install
+  labels:
+    app: rsync-worker
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+data:
+  project-list.txt: |
+    {{ .Values.whiteList.project | indent 4 }}
+  project-exclusive-list.txt: |
+    {{ .Values.exclusiveList.project | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taokan-dataset
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: pre-install
+  labels:
+    app: rsync-worker
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+data:
+  dataset-list.txt: |
+    {{ .Values.whiteList.dataset | indent 4 }}
+  dataset-exclusive-list.txt: |
+    {{ .Values.exclusiveList.dataset | indent 4 }}
+{{- end }}
