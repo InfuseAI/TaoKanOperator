@@ -29,7 +29,7 @@ deploy-image: build-image
 	docker push ${IMAGE_NAME}
 
 run-client: build
-	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} client -r localhost --retry 0 --daemon
+	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} client -r localhost --retry 0 --daemon --debug
 
 run-server: build
 	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} server --storage-class-rwx efs-sc --debug

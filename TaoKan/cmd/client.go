@@ -224,12 +224,26 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 			}
 		}
 
-		if isRsyncServerReady {
-			k8s := KubernetesAPI.GetInstance(KubeConfig)
-			retryTimes, _ := cmd.Flags().GetInt32("retry")
-			err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, retryTimes)
-			if err != nil {
-				log.Errorf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
+		if !isRsyncServerReady {
+			log.Warnf("[Skip] Pvc %s due to rsync-server not running", pvc.Name)
+			continue
+		}
+
+		k8s := KubernetesAPI.GetInstance(KubeConfig)
+		retryTimes, _ := cmd.Flags().GetInt32("retry")
+		err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, retryTimes)
+		if err != nil {
+			log.Errorf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
+		}
+
+		outputLogs, err = commanderWrapper(cmd, "umount", pvc.Name)
+		if err != nil {
+			log.Warnf("[Skip] Umount pvc %s from server : %v", pvc.Name, err)
+			continue
+		}
+		for _, d := range outputLogs {
+			if d != "" {
+				log.Infof(d)
 			}
 		}
 	}

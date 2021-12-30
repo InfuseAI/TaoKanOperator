@@ -10,6 +10,29 @@ import (
 	"strings"
 )
 
+func getRsyncServerStatus(pvcName string) (string, error) {
+	k8s := KubernetesAPI.GetInstance(KubeConfig)
+	_, usedByPods, err := k8s.GetPvc(Namespace, pvcName)
+	if err != nil {
+		return "", err
+	}
+
+	rsyncServer := ""
+	if len(usedByPods) > 0 {
+		var pods []string
+		for _, pod := range usedByPods {
+			managedBy := pod.Labels["managed-by"]
+			role := pod.Labels["role"]
+			if managedBy == "TaoKan" && role == "rsync-server" {
+				rsyncServer = pod.Name
+			}
+			pods = append(pods, pod.Name)
+		}
+		log.Warnf("[Used By] Pod " + strings.Join(pods, ","))
+	}
+	return rsyncServer, nil
+}
+
 func status(w io.Writer, args []string) error {
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
 	var result string
@@ -62,27 +85,13 @@ func mountPvc(w io.Writer, args []string) error {
 	}
 	pvcName := args[0]
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
-	_, usedByPods, err := k8s.GetPvc(Namespace, pvcName)
+	result := ""
+	serverPod, err := getRsyncServerStatus(pvcName)
 	if err != nil {
 		return err
 	}
 
-	result := ""
-	isRsyncServerRunning := false
-	if len(usedByPods) > 0 {
-		var pods []string
-		for _, pod := range usedByPods {
-			managedBy := pod.Labels["managed-by"]
-			role := pod.Labels["role"]
-			if managedBy == "TaoKan" && role == "rsync-server" {
-				isRsyncServerRunning = true
-			}
-			pods = append(pods, pod.Name)
-		}
-		log.Warnf("[Used By] Pod " + strings.Join(pods, ","))
-	}
-
-	if isRsyncServerRunning == false {
+	if serverPod == "" {
 		// Launch rsync-server
 		log.Infoln("[Launch] rsync-server to mount pvc " + pvcName)
 		err := k8s.LaunchRsyncServerPod(Namespace, pvcName)
@@ -90,7 +99,7 @@ func mountPvc(w io.Writer, args []string) error {
 			return err
 		}
 	} else {
-		log.Warnf("[Skip] pod rsync-server-" + pvcName + " is already running")
+		log.Warnf("[Skip] pod " + serverPod + " is already running")
 	}
 	result = "Server pod ready: rsync-worker-" + pvcName
 	io.WriteString(w, result)
@@ -105,43 +114,14 @@ func umountPvc(w io.Writer, args []string) error {
 	pvcName := args[0]
 
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
-	pvc, usedByPods, err := k8s.GetPvc(Namespace, pvcName)
+	serverPod, err := getRsyncServerStatus(pvcName)
 	if err != nil {
 		return err
 	}
 
-	isRsyncServerRunning := false
-	var rsyncServerPodName string
-	if len(usedByPods) > 0 {
-		var pods []string
-		for _, pod := range usedByPods {
-			if val, ok := pod.Labels["managed-by"]; ok && val == "TaoKan" {
-				isRsyncServerRunning = true
-				rsyncServerPodName = pod.Name
-			}
-			pods = append(pods, pod.Name)
-		}
-
-		if !isRsyncServerRunning {
-			log.Warnf("[Skip] Pvc is used by pods " + strings.Join(pods, ","))
-			return nil
-		}
-	} else {
-		log.Warnf("[Skip] Pvc %s is not mounted by any pods", pvcName)
-		return nil
-	}
-
-	if pvc == nil {
-		log.Warnf("[Skip] Pvc %s not found", pvcName)
-		return nil
-	}
-
-	if isRsyncServerRunning {
-		log.Infof("[Delete] Pod %s", rsyncServerPodName)
-		err = k8s.DeletePod(Namespace, rsyncServerPodName)
-		if err != nil {
-			return err
-		}
+	if serverPod != "" {
+		log.Infof("[Delete] Pod %s", serverPod)
+		go k8s.DeletePod(Namespace, serverPod)
 	}
 	return nil
 }

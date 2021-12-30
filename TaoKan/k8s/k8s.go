@@ -3,7 +3,6 @@ package KubernetesAPI
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -16,7 +15,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
+	watchTool "k8s.io/client-go/tools/watch"
 	"os"
 	"strings"
 	"sync"
@@ -285,7 +286,7 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s", registry, podTemplate.Spec.Containers[0].Image)
 
 	// Apply pod
-	_, err = k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
+	pod, err := k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
 
 	// Check Service
 	retryTimes := 3
@@ -306,45 +307,12 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 	log.Infof("Service %s found", svc.Name)
 
 	// Wait until rsync-server pod ready
-	selector := "metadata.name=" + podTemplate.Name
-	timeoutSeconds := int64(60 * 5)
-	ctx := context.TODO()
-	watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector:  selector,
-		TimeoutSeconds: &timeoutSeconds,
-	})
+	err = k.WatchPod(*pod, v1.PodRunning, 0)
 	if err != nil {
 		return err
 	}
+	return nil
 
-	isRsyncServerReady := false
-	for event := range watcher.ResultChan() {
-		if event.Object == nil {
-			break
-		}
-		pod, ok := event.Object.(*v1.Pod)
-		if !ok {
-			break
-		}
-		status, reason, _, _ := parseContainerStatus(pod)
-
-		log.Debugf("Pod: %s Phase: %v status: %v:%v", pod.Name, pod.Status.Phase, status, reason)
-		if pod.Status.Phase == v1.PodPending {
-			continue
-		} else if pod.Status.Phase == v1.PodRunning {
-			log.Infof("[Ready] %s", pod.Name)
-			isRsyncServerReady = true
-			break
-		} else {
-			break
-		}
-	}
-
-	if !isRsyncServerReady {
-		err = errors.New(fmt.Sprintf("pod %s is not ready", podTemplate.Name))
-	}
-
-	return err
 }
 
 //go:embed rsync-worker.yaml
@@ -386,75 +354,88 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 	}
 
 	// Apply pod
-	_, err = k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
+	pod, err := k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
 	if err != nil {
 		return err
 	}
 	log.Infof("Pod %s created", podTemplate.Name)
 
-	// Wait until rsync-worker pod ready
-	selector := "metadata.name=" + podTemplate.Name
-	timeoutSeconds := int64(60 * 5)
+	// Wait until rsync-worker pod completed
+	err = k.WatchPod(*pod, v1.PodSucceeded, retryTimes)
+	if err != nil {
+		if pod.Spec.RestartPolicy != v1.RestartPolicyNever {
+			k.DeletePod(pod.Namespace, pod.Name)
+		}
+		return err
+	}
+	return nil
+}
+
+func (k *KubernetesCluster) WatchPod(podTemplate v1.Pod, watchUntil v1.PodPhase, retryTimes int32) error {
 	ctx := context.TODO()
-	watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector:  selector,
-		TimeoutSeconds: &timeoutSeconds,
+	selector := "metadata.name=" + podTemplate.Name
+	watchFunc := func(options metav1.ListOptions) (watch.Interface, error) {
+		timeout := int64(5 * 60)
+		return k.Clientset.CoreV1().Pods(podTemplate.Namespace).Watch(ctx, metav1.ListOptions{
+			FieldSelector:  selector,
+			TimeoutSeconds: &timeout,
+		})
+	}
+	watcher, err := watchTool.NewRetryWatcher("1", &cache.ListWatch{
+		WatchFunc: watchFunc,
 	})
+	defer watcher.Stop()
 	if err != nil {
 		return err
 	}
 
-	isRsyncWorkerCompleted := false
-watcherLoop:
-	for event := range watcher.ResultChan() {
-		if event.Object == nil {
-			break watcherLoop
-		}
-		pod, ok := event.Object.(*v1.Pod)
-		if !ok {
-			break watcherLoop
-		}
-		status, reason, msg, restartCount := parseContainerStatus(pod)
-		log.Debugf("Pod: %s Phase: %v status: %v reason: %v msg: %v", pod.Name, pod.Status.Phase, status, reason, msg)
-		switch pod.Status.Phase {
-		case v1.PodPending:
-			if msg != "" {
-				log.Errorf("[%v] Pod: %s reason: %v msg: %s", status, pod.Name, reason, msg)
-				break watcherLoop
+	for {
+		select {
+		case e, ok := <-watcher.ResultChan():
+			if !ok {
+				continue
 			}
-			continue
-		case v1.PodRunning:
-			if status != "Running" {
-				if status == "Terminated" && restartCount > 0 {
-					log.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
-				} else if status == "Waiting" {
+			pod, ok := e.Object.(*v1.Pod)
+			if !ok {
+				continue
+			}
+			phase := pod.Status.Phase
+			status, reason, msg, restartCount := parseContainerStatus(pod)
+			log.Debugf("Pod: %s Phase: %v status: %v:%v", pod.Name, pod.Status.Phase, status, reason)
+			switch phase {
+			case v1.PodPending:
+				if msg != "" {
+					return fmt.Errorf("[%v] Pod: %s reason: %v msg: %s", status, pod.Name, reason, msg)
+				}
+				continue
+			case v1.PodRunning:
+				switch status {
+				case "Terminated":
+					if restartCount > 0 {
+						log.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
+					}
+				case "Waiting":
 					log.Errorf("[%v] Pod: %s reason: %v message: %v", status, pod.Name, reason, msg)
+				case "Running":
+					log.Infof("[Running] Pod: %s", pod.Name)
+					if watchUntil == v1.PodRunning {
+						return nil
+					}
 				}
-				if restartCount >= retryTimes {
-					log.Errorf("[Abort] after retry %d times", retryTimes)
-					break watcherLoop
-				}
-			} else {
-				log.Infof("[Running] Pod: %s", pod.Name)
+			case v1.PodSucceeded:
+				log.Infof("[Completed] Pod: %s", pod.Name)
+				return nil
+			case v1.PodFailed:
+				return fmt.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
+			default:
+				return fmt.Errorf("unsupported phase: %v", phase)
 			}
-		case v1.PodSucceeded:
-			log.Infof("[Completed] Pod: %s", pod.Name)
-			isRsyncWorkerCompleted = true
-			break watcherLoop
-		case v1.PodFailed:
-			restartCount := pod.Status.ContainerStatuses[0].RestartCount
-			log.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
-			break watcherLoop
-		default:
-			log.Errorf("Unsupported phase: %v", pod.Status.Phase)
+			if restartCount >= retryTimes {
+				return fmt.Errorf("[Abort] after retry %d times", retryTimes)
+			}
 		}
 	}
-	if !isRsyncWorkerCompleted {
-		if podTemplate.Spec.RestartPolicy != v1.RestartPolicyNever {
-			k.DeletePod(namespace, podTemplate.Name)
-		}
-		return errors.New(fmt.Sprintf("Failed to backup Pvc %s", pvcName))
-	}
+
 	return nil
 }
 
