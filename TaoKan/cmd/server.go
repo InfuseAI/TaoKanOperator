@@ -37,6 +37,8 @@ func init() {
 	// is called directly, e.g.:
 	// serverCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	serverCmd.Flags().UintVarP(&serverPort, "port", "p", 2022, "Server port to listen on")
+	serverCmd.Flags().String("storage-class", "", "Specify the storage class for RWO pvc")
+	serverCmd.Flags().String("storage-class-rwx", "", "Specify the storage class for RWX pvc")
 	serverCmd.PersistentFlags().Int32("retry", 3, "Rsync-server pod restart time")
 }
 
@@ -44,13 +46,20 @@ func serverEntrypoint(cmd *cobra.Command, args []string) {
 
 	log.Infoln("kubeconfig:", KubeConfig)
 	log.Infoln("namespace:", Namespace)
+	rwo, _ := cmd.Flags().GetString("storage-class")
+	rwx, _ := cmd.Flags().GetString("storage-class-rwx")
+	if rwo != "" || rwx != "" {
+		log.Infof("default storage class         : %s", rwo)
+		log.Infof("default storage class for RWX : %s", rwx)
+	}
 
 	log.Infof("Start ssh server at %d", serverPort)
 	config := commander.Config{
-		KubeConfig: KubeConfig,
-		Namespace:  Namespace,
-		Port:       serverPort,
+		KubeConfig:      KubeConfig,
+		Namespace:       Namespace,
+		Port:            serverPort,
+		StorageClassRWO: rwo,
+		StorageClassRWX: rwx,
 	}
 	commander.StartServer(config)
-
 }

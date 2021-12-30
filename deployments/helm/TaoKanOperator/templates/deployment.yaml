@@ -109,6 +109,8 @@ spec:
             - "{{ .Release.Namespace }}"
             - "--retry"
             - "{{ .Values.taoKan.retryTimes }}"
+            - "--registry"
+            - "{{ .Values.image.registry }}"
             - "--user-list"
             - "/etc/taokan/user/user-list.txt"
             - "--user-exclusive-list"

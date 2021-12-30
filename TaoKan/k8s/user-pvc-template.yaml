@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    hub.jupyter.org/username: kent
+  labels:
+    app: jupyterhub
+    chart: jupyterhub-0.9-dev
+    component: singleuser-storage
+    heritage: jupyterhub
+    release: primehub
+  name: claim-kent
+  namespace: hub
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  volumeMode: Filesystem

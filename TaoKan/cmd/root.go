@@ -2,6 +2,7 @@ package cmd
 
 import (
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"k8s.io/client-go/util/homedir"
 	"os"
 	"path/filepath"
@@ -55,7 +56,12 @@ func init() {
 	if home != "" {
 		kubeconfig = filepath.Join(home, ".kube", "config")
 	}
+
 	rootCmd.PersistentFlags().StringVar(&KubeConfig, "kubeconfig", kubeconfig, "absolute path to the kubeconfig file")
 	rootCmd.PersistentFlags().StringVarP(&Namespace, "namespace", "n", "hub", "default namespace of k8s")
+	rootCmd.PersistentFlags().String("registry", "docker.io", "container image pull registry")
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable Debug verbose")
+
+	viper.BindEnv("registry", "PRIMEHUB_AIRGAPPED_IMAGE_PREFIX")
+	viper.BindPFlag("registry", rootCmd.PersistentFlags().Lookup("registry"))
 }

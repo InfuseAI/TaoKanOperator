@@ -1,6 +1,7 @@
 package commander
 
 import (
+	KubernetesAPI "TaoKan/k8s"
 	"errors"
 	"fmt"
 	"github.com/gliderlabs/ssh"
@@ -14,6 +15,8 @@ import (
 
 var KubeConfig string
 var Namespace string
+var StorageClassRWO string
+var StorageClassRWX string
 
 var lock = &sync.Mutex{}
 
@@ -47,6 +50,10 @@ var actions = []Action{
 		Names:      []string{"unmount", "umount"},
 		ServerFunc: umountPvc,
 	},
+	{
+		Names:      []string{"touch"},
+		ServerFunc: touchPvc,
+	},
 }
 
 type Commander struct {
@@ -59,10 +66,12 @@ type Commander struct {
 }
 
 type Config struct {
-	Namespace  string
-	KubeConfig string
-	Remote     string
-	Port       uint
+	Namespace       string
+	KubeConfig      string
+	Remote          string
+	Port            uint
+	StorageClassRWO string
+	StorageClassRWX string
 }
 
 func serverCommandDispatcher(c *Commander, w io.Writer, commands []string) error {
@@ -103,6 +112,14 @@ func StartServer(config Config) error {
 	}
 	KubeConfig = config.KubeConfig
 	Namespace = config.Namespace
+
+	// Config the specified Storage Class
+	if config.StorageClassRWX != "" || config.StorageClassRWO != "" {
+		k8s := KubernetesAPI.GetInstance(KubeConfig)
+		k8s.SetRwoStorageClass(config.StorageClassRWO)
+		k8s.SetRwxStorageClass(config.StorageClassRWX)
+	}
+
 	ssh.Handle(func(s ssh.Session) {
 		io.WriteString(s, welcomeMsg)
 		log.Infof("[Receive] Command: `%s`", strings.Join(s.Command(), " "))

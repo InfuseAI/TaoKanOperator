@@ -44,30 +44,15 @@ var rsyncCmd = &cobra.Command{
 		pvcName := args[0]
 		k8s := KubernetesAPI.GetInstance(KubeConfig)
 
-		usedByPods, err := k8s.ListPodsUsePvc(Namespace, pvcName)
+		pvc, usedByPods, err := k8s.GetPvc(Namespace, pvcName)
 		if err != nil {
 			log.Fatal(err)
 		}
 		if len(usedByPods) > 0 {
-			log.Warnf("[Skip] Pvc %s is used by Pod %s", pvcName, usedByPods[0].Name)
+			log.Warnf("[Warning] Pvc %s is used by Pod %s", pvcName, usedByPods[0].Name)
 		}
 
-		// Build the connection with Server
-		outputs, err := commanderWrapper(cmd, "mount", pvcName)
-		for _, data := range outputs {
-			log.Infof(data)
-		}
-		if err != nil {
-			log.Error(err)
-			return
-		}
-
-		// Launch Rsync worker
-		retryTimes, _ := cmd.Flags().GetInt32("retry")
-		err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvcName, retryTimes)
-		if err != nil {
-			log.Fatal(err)
-		}
+		transferPvcData(cmd, []v1.PersistentVolumeClaim{*pvc})
 	},
 }
 
@@ -216,6 +201,13 @@ func transferBackupData(cmd *cobra.Command, backupList backupList) {
 
 func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 	for _, pvc := range pvcs {
+		// Ask remote cluster to touch PVC by rsyncServer pod
+		err := touchRemotePvc(cmd, pvc)
+		if err != nil {
+			log.Warnf("[Skip] pvc %s : %v", pvc.Name, err)
+			continue
+		}
+
 		// Ask remote cluster to mount PVC by rsync-server pod
 		outputLogs, err := commanderWrapper(cmd, "mount", pvc.Name)
 		if err != nil {
@@ -237,10 +229,46 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 			retryTimes, _ := cmd.Flags().GetInt32("retry")
 			err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, retryTimes)
 			if err != nil {
-				log.Warnf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
+				log.Errorf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
 			}
 		}
 	}
+}
+
+func touchRemotePvc(cmd *cobra.Command, pvc v1.PersistentVolumeClaim) error {
+	var pvcType string
+	var name string
+	var capacity string
+	var accessMode string
+
+	if userName, ok := pvc.Annotations["hub.jupyter.org/username"]; ok {
+		pvcType = "user"
+		name = userName
+	} else if volumeName, ok := pvc.Labels["primehub-group"]; ok {
+		if strings.HasPrefix(volumeName, "dataset-") {
+			pvcType = "dataset"
+			name = volumeName[len("dataset-"):]
+		} else {
+			pvcType = "project"
+			name = volumeName
+		}
+	} else {
+		pvcType = "raw"
+		name = pvc.Name
+		accessMode = string(pvc.Spec.AccessModes[0])
+	}
+	capacity = pvc.Spec.Resources.Requests.Storage().String()
+
+	outputLogs, err := commanderWrapper(cmd, "touch", pvcType, name, capacity, accessMode)
+	if err != nil {
+		return err
+	}
+	for _, d := range outputLogs {
+		if d != "" {
+			log.Infof(d)
+		}
+	}
+	return nil
 }
 
 func showAvaliblePvcs(namespace string) {

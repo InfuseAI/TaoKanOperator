@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/apimachinery/pkg/watch"
@@ -22,8 +25,14 @@ import (
 
 var lock = &sync.Mutex{}
 
+type storageClass struct {
+	rwo string
+	rwx string
+}
 type KubernetesCluster struct {
 	Clientset *kubernetes.Clientset
+
+	defaultStorageClass storageClass
 }
 
 const (
@@ -86,6 +95,14 @@ func (k *KubernetesCluster) init(kubeconfig string) error {
 	}
 
 	return nil
+}
+
+func (k *KubernetesCluster) SetRwoStorageClass(storageClass string) {
+	k.defaultStorageClass.rwo = storageClass
+}
+
+func (k *KubernetesCluster) SetRwxStorageClass(storageClass string) {
+	k.defaultStorageClass.rwx = storageClass
 }
 
 func (k *KubernetesCluster) ListPods(namespace string) ([]v1.Pod, error) {
@@ -226,6 +243,27 @@ func (k *KubernetesCluster) ShowPvcStatus(namespace string, pvcs []v1.Persistent
 	return content, nil
 }
 
+func parseContainerStatus(pod *v1.Pod) (status string, reason string, message string, restartCount int32) {
+	if len(pod.Status.ContainerStatuses) > 0 {
+		containerState := pod.Status.ContainerStatuses[0].State
+		if pod.Status.ContainerStatuses[0].State.Waiting != nil {
+			reason = containerState.Waiting.Reason
+			message = containerState.Waiting.Message
+			status = "Waiting"
+		} else if containerState.Running != nil {
+			status = "Running"
+		} else if containerState.Terminated != nil {
+			reason = containerState.Terminated.Reason
+			message = containerState.Terminated.Message
+			status = "Terminated"
+		}
+		restartCount = pod.Status.ContainerStatuses[0].RestartCount
+	} else {
+		status = "Pending"
+	}
+	return status, reason, message, restartCount
+}
+
 //go:embed rsync-server.yaml
 var RsyncServerYamlTemplate []byte
 
@@ -241,6 +279,10 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 	podTemplate.Namespace = namespace
 	podTemplate.Labels["mountPvc"] = pvcName
 	podTemplate.Spec.Volumes[0].PersistentVolumeClaim.ClaimName = pvcName
+
+	// Add registry as the prefix of image name
+	registry := strings.TrimRight(viper.GetString("registry"), "/")
+	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s", registry, podTemplate.Spec.Containers[0].Image)
 
 	// Apply pod
 	_, err = k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
@@ -284,17 +326,9 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 		if !ok {
 			break
 		}
-		containerState := pod.Status.ContainerStatuses[0].State
-		var msg string
-		if pod.Status.ContainerStatuses[0].State.Waiting != nil {
-			msg = containerState.Waiting.Reason
-		} else if containerState.Running != nil {
-			msg = "Running"
-		} else if containerState.Terminated != nil {
-			msg = containerState.Terminated.Reason
-		}
+		status, reason, _, _ := parseContainerStatus(pod)
 
-		log.Infof("Pod: %s Status: %v", pod.Name, msg)
+		log.Debugf("Pod: %s Phase: %v status: %v:%v", pod.Name, pod.Status.Phase, status, reason)
 		if pod.Status.Phase == v1.PodPending {
 			continue
 		} else if pod.Status.Phase == v1.PodRunning {
@@ -341,6 +375,10 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 		podTemplate.Spec.RestartPolicy = v1.RestartPolicyNever
 	}
 
+	// Add registry as the prefix of image name
+	registry := strings.TrimRight(viper.GetString("registry"), "/")
+	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s", registry, podTemplate.Spec.Containers[0].Image)
+
 	// Delete the existing pod
 	err = k.DeletePod(namespace, podTemplate.Name)
 	if err != nil {
@@ -376,37 +414,24 @@ watcherLoop:
 		if !ok {
 			break watcherLoop
 		}
-		var status string
-		var reason string
-		if len(pod.Status.ContainerStatuses) > 0 {
-			containerState := pod.Status.ContainerStatuses[0].State
-			if pod.Status.ContainerStatuses[0].State.Waiting != nil {
-				reason = containerState.Waiting.Reason
-				status = "Waiting"
-			} else if containerState.Running != nil {
-				status = "Running"
-			} else if containerState.Terminated != nil {
-				reason = containerState.Terminated.Reason
-				status = "Terminated"
-			}
-		} else {
-			status = "Pending"
-		}
-		log.Debugf("Pod: %s Phase: %v status: %v", pod.Name, pod.Status.Phase, status)
+		status, reason, msg, restartCount := parseContainerStatus(pod)
+		log.Debugf("Pod: %s Phase: %v status: %v reason: %v msg: %v", pod.Name, pod.Status.Phase, status, reason, msg)
 		switch pod.Status.Phase {
 		case v1.PodPending:
+			if msg != "" {
+				log.Errorf("[%v] Pod: %s reason: %v msg: %s", status, pod.Name, reason, msg)
+				break watcherLoop
+			}
 			continue
 		case v1.PodRunning:
 			if status != "Running" {
-				if status == "Terminated" && pod.Status.ContainerStatuses[0].RestartCount > 0 {
-					restartCount := pod.Status.ContainerStatuses[0].RestartCount
+				if status == "Terminated" && restartCount > 0 {
 					log.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
 				} else if status == "Waiting" {
-					msg := pod.Status.ContainerStatuses[0].State.Waiting.Message
 					log.Errorf("[%v] Pod: %s reason: %v message: %v", status, pod.Name, reason, msg)
 				}
-				if pod.Status.ContainerStatuses[0].RestartCount >= retryTimes {
-					log.Errorf("Abort after retry %d times", retryTimes)
+				if restartCount >= retryTimes {
+					log.Errorf("[Abort] after retry %d times", retryTimes)
 					break watcherLoop
 				}
 			} else {
@@ -428,7 +453,6 @@ watcherLoop:
 		if podTemplate.Spec.RestartPolicy != v1.RestartPolicyNever {
 			k.DeletePod(namespace, podTemplate.Name)
 		}
-
 		return errors.New(fmt.Sprintf("Failed to backup Pvc %s", pvcName))
 	}
 	return nil
@@ -513,4 +537,102 @@ func (k *KubernetesCluster) CleanupJob(namespace string, jobName string) error {
 
 	err = <-ch
 	return err
+}
+
+//go:embed user-pvc-template.yaml
+var UserPvcTemplate []byte
+
+//go:embed volume-pvc-template.yaml
+var VolumePvcTemplate []byte
+
+func (k *KubernetesCluster) CreatePvc(pvcTemplate v1.PersistentVolumeClaim) error {
+
+	if pvcTemplate.Spec.AccessModes[0] == v1.ReadWriteMany && k.defaultStorageClass.rwx != "" {
+		log.Debugf("Set RWX stroage class: %s", k.defaultStorageClass.rwx)
+		pvcTemplate.Spec.StorageClassName = &k.defaultStorageClass.rwx
+	} else if k.defaultStorageClass.rwo != "" {
+		log.Debugf("Set RWO stroage class: %s", k.defaultStorageClass.rwo)
+		pvcTemplate.Spec.StorageClassName = &k.defaultStorageClass.rwo
+	}
+
+	pvc, err := k.Clientset.CoreV1().PersistentVolumeClaims(pvcTemplate.Namespace).Create(context.TODO(), &pvcTemplate, metav1.CreateOptions{})
+	if err != nil {
+		if k8sErrors.IsAlreadyExists(err) {
+			log.Infof("[Touched] %v", err)
+			return nil
+		}
+		return err
+	}
+	log.Warnf("[Created] pvc: %v accessModes: %v sc: %v", pvc.Name, pvc.Spec.AccessModes, *pvc.Spec.StorageClassName)
+	return nil
+}
+
+func (k *KubernetesCluster) CreateUserPvc(namespace string, name string, capacityString string) error {
+	var pvcTemplate v1.PersistentVolumeClaim
+	err := yaml.Unmarshal(UserPvcTemplate, &pvcTemplate)
+	if err != nil {
+		return err
+	}
+
+	capacity, err := resource.ParseQuantity(capacityString)
+	if err != nil {
+		return err
+	}
+
+	pvcTemplate.Annotations["hub.jupyter.org/username"] = name
+	pvcTemplate.Name = fmt.Sprintf("claim-%s", name)
+	pvcTemplate.Namespace = namespace
+	pvcTemplate.Spec.Resources.Requests["storage"] = capacity
+
+	return k.CreatePvc(pvcTemplate)
+}
+
+func (k *KubernetesCluster) CreateProjectPvc(namespace string, name string, capacityString string) error {
+	var pvcTemplate v1.PersistentVolumeClaim
+	err := yaml.Unmarshal(VolumePvcTemplate, &pvcTemplate)
+	if err != nil {
+		return err
+	}
+	capacity, err := resource.ParseQuantity(capacityString)
+	if err != nil {
+		return err
+	}
+	pvcTemplate.Labels["primehub-group"] = name
+	pvcTemplate.Name = fmt.Sprintf("data-nfs-project-%s-0", name)
+	pvcTemplate.Namespace = namespace
+	pvcTemplate.Spec.Resources.Requests["storage"] = capacity
+
+	return k.CreatePvc(pvcTemplate)
+}
+
+func (k *KubernetesCluster) CreateRawPvc(namespace string, name string, capacityString string, accessMode v1.PersistentVolumeAccessMode) error {
+	var pvcTemplate v1.PersistentVolumeClaim
+	capacity, err := resource.ParseQuantity(capacityString)
+	if err != nil {
+		return err
+	}
+	pvcTemplate.Name = name
+	pvcTemplate.Namespace = namespace
+	pvcTemplate.Spec.Resources.Requests = v1.ResourceList{"storage": capacity}
+	pvcTemplate.Spec.AccessModes = []v1.PersistentVolumeAccessMode{accessMode}
+
+	return k.CreatePvc(pvcTemplate)
+}
+
+func (k *KubernetesCluster) CreateDatasetPvc(namespace string, name string, capacityString string) error {
+	var pvcTemplate v1.PersistentVolumeClaim
+	err := yaml.Unmarshal(VolumePvcTemplate, &pvcTemplate)
+	if err != nil {
+		return err
+	}
+	capacity, err := resource.ParseQuantity(capacityString)
+	if err != nil {
+		return err
+	}
+	pvcTemplate.Labels["primehub-group"] = fmt.Sprintf("dataset-%s", name)
+	pvcTemplate.Name = fmt.Sprintf("data-nfs-dataset-%s-0", name)
+	pvcTemplate.Namespace = namespace
+	pvcTemplate.Spec.Resources.Requests["storage"] = capacity
+
+	return k.CreatePvc(pvcTemplate)
 }

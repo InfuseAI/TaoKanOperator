@@ -32,7 +32,7 @@ run-client: build
 	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} client -r localhost --retry 0 --daemon
 
 run-server: build
-	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} server
+	./${BINARY_PATH}/${BINARY_NAME}-${CURRENT_OS} server --storage-class-rwx efs-sc --debug
 
 dev-client:
 	reflex --start-service  -r '\.go$$' make run-client

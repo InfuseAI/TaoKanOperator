@@ -3,8 +3,10 @@ package commander
 import (
 	KubernetesAPI "TaoKan/k8s"
 	"errors"
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"io"
+	v1 "k8s.io/api/core/v1"
 	"strings"
 )
 
@@ -56,7 +58,7 @@ func status(w io.Writer, args []string) error {
 
 func mountPvc(w io.Writer, args []string) error {
 	if len(args) < 1 {
-		return errors.New("[Error] Should provide PVC.")
+		return errors.New("should provide PVC")
 	}
 	pvcName := args[0]
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
@@ -98,7 +100,7 @@ func mountPvc(w io.Writer, args []string) error {
 
 func umountPvc(w io.Writer, args []string) error {
 	if len(args) < 1 {
-		return errors.New("[Error] Should provide PVC.")
+		return errors.New("should provide PVC")
 	}
 	pvcName := args[0]
 
@@ -142,4 +144,34 @@ func umountPvc(w io.Writer, args []string) error {
 		}
 	}
 	return nil
+}
+
+func touchPvc(w io.Writer, args []string) error {
+	argc := len(args)
+	if argc != 3 && argc != 4 {
+		return fmt.Errorf("invalid number of arguments: %d", argc)
+	}
+	pvcType := args[0]
+	name := args[1]
+	capacity := args[2]
+
+	k8s := KubernetesAPI.GetInstance(KubeConfig)
+	var err error
+	switch pvcType {
+	case "user":
+		err = k8s.CreateUserPvc(Namespace, name, capacity)
+	case "project":
+		err = k8s.CreateProjectPvc(Namespace, name, capacity)
+	case "dataset":
+		err = k8s.CreateDatasetPvc(Namespace, name, capacity)
+	case "raw":
+		if argc != 4 {
+			return fmt.Errorf("invalid number of arguments: %d", argc)
+		}
+		accessMode := args[3]
+		err = k8s.CreateRawPvc(Namespace, name, capacity, v1.PersistentVolumeAccessMode(accessMode))
+	default:
+		err = errors.New("unsupported PVC type")
+	}
+	return err
 }
