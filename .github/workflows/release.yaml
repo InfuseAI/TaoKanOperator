@@ -20,7 +20,7 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
       - name: Build & deploy images
-        run: make deploy VERSION=${{ github.event.release.tag_name }}
+        run: make deploy VERSION=${{ github.event.release.tag_name }} && make build-image-tarball VERSION=${{ github.event.release.tag_name }}
       - name: Build helm chart
         run: make package-helm-chart VERSION=${{ github.event.release.tag_name }}
       - name: Upload helm chart tarball
@@ -32,8 +32,6 @@ jobs:
           asset_path: TaoKanOperator-${{ github.event.release.tag_name }}.tar.gz
           asset_name: TaoKanOperator-${{ github.event.release.tag_name }}.tar.gz
           asset_content_type: application/tar+gzip
-      - name: Build image tarball
-        run: make package-image-tarball VERSION=${{ github.event.release.tag_name }}
       - name: Upload image tarball
         uses: actions/upload-release-asset@v1.0.2
         env:
