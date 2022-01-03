@@ -34,6 +34,11 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{.Values.image.registry | trimSuffix "/" }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: IMAGE_TAG
+              value: {{ .Values.image.tag | default .Chart.AppVersion }}
+            - name: PRIMEHUB_AIRGAPPED_IMAGE_PREFIX
+              value: {{ .Values.image.registry }}
           command:
             - taokan
           args:
@@ -96,6 +101,11 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{.Values.image.registry | trimSuffix "/" }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: IMAGE_TAG
+              value: {{ .Values.image.tag | default .Chart.AppVersion }}
+            - name: PRIMEHUB_AIRGAPPED_IMAGE_PREFIX
+              value: {{ .Values.image.registry }}
           command:
             - taokan
           args:
@@ -109,8 +119,6 @@ spec:
             - "{{ .Release.Namespace }}"
             - "--retry"
             - "{{ .Values.taoKan.retryTimes }}"
-            - "--registry"
-            - "{{ .Values.image.registry }}"
             - "--user-list"
             - "/etc/taokan/user/user-list.txt"
             - "--user-exclusive-list"

@@ -10,13 +10,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	version string
+)
+
 var KubeConfig string
 var Namespace string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "TaoKan",
-	Short: "A brief description of your application",
+	Use:     "TaoKan",
+	Version: version,
+	Short:   "A brief description of your application",
 	Long: `A longer description that spans multiple lines and likely contains
 examples and usage of using your application. For example:
 
@@ -60,8 +65,11 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&KubeConfig, "kubeconfig", kubeconfig, "absolute path to the kubeconfig file")
 	rootCmd.PersistentFlags().StringVarP(&Namespace, "namespace", "n", "hub", "default namespace of k8s")
 	rootCmd.PersistentFlags().String("registry", "docker.io", "container image pull registry")
+	rootCmd.PersistentFlags().String("tag", version, "container image tag")
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable Debug verbose")
 
 	viper.BindEnv("registry", "PRIMEHUB_AIRGAPPED_IMAGE_PREFIX")
 	viper.BindPFlag("registry", rootCmd.PersistentFlags().Lookup("registry"))
+	viper.BindEnv("image-tag", "IMAGE_TAG")
+	viper.BindPFlag("image-tag", rootCmd.PersistentFlags().Lookup("image-tag"))
 }

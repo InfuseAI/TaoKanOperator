@@ -283,7 +283,9 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 
 	// Add registry as the prefix of image name
 	registry := strings.TrimRight(viper.GetString("registry"), "/")
-	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s", registry, podTemplate.Spec.Containers[0].Image)
+	imageName := strings.Split(podTemplate.Spec.Containers[0].Image, ":")[0]
+	imageTag := viper.GetString("image-tag")
+	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s:%s", registry, imageName, imageTag)
 
 	// Apply pod
 	pod, err := k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
@@ -345,7 +347,9 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 
 	// Add registry as the prefix of image name
 	registry := strings.TrimRight(viper.GetString("registry"), "/")
-	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s", registry, podTemplate.Spec.Containers[0].Image)
+	imageName := strings.Split(podTemplate.Spec.Containers[0].Image, ":")[0]
+	imageTag := viper.GetString("image-tag")
+	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s:%s", registry, imageName, imageTag)
 
 	// Delete the existing pod
 	err = k.DeletePod(namespace, podTemplate.Name)
