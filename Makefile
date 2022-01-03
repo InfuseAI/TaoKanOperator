@@ -32,3 +32,11 @@ package-helm-chart:
 	@rm -rf ./build
 	@echo "[Release] helm cahrt"
 	@ls -l TaoKanOperator-$(VERSION).tar.gz
+
+package-image-tarball:
+	@echo "[Build] Image tarball: taokan-$(VERSION).tgz"
+	@docker save infuseai/taokan:v0.7.0 infuseai/rsync-server:v0.7.0 | gzip -c > taokan.tgz
+	@echo "[Build] Image list:    taokan-$(VERSION).txt"
+	@echo "infuseai/taokan:$(VERSION)" > taokan-$(VERSION).txt
+	@echo "infuseai/rsync-server:$(VERSION)" >> taokan-$(VERSION).txt
+	@echo "[Done]"

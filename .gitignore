@@ -150,3 +150,5 @@ id_rsa.pub
 TaoKan/bin/
 build
 TaoKanOperator-*.tar.gz
+taokan-*.tgz
+taokan-*.txt

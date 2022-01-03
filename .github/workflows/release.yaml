@@ -32,3 +32,23 @@ jobs:
           asset_path: TaoKanOperator-${{ github.event.release.tag_name }}.tar.gz
           asset_name: TaoKanOperator-${{ github.event.release.tag_name }}.tar.gz
           asset_content_type: application/tar+gzip
+      - name: Build image tarball
+        run: make package-image-tarball VERSION=${{ github.event.release.tag_name }}
+      - name: Upload image tarball
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
+          asset_path: taokan-${{ github.event.release.tag_name }}.tgz
+          asset_name: taokan-${{ github.event.release.tag_name }}.tgz
+          asset_content_type: application/tar+gzip
+      - name: Upload image tarball list
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
+          asset_path: taokan-${{ github.event.release.tag_name }}.txt
+          asset_name: taokan-${{ github.event.release.tag_name }}.txt
+          asset_content_type: application/text
