@@ -434,8 +434,8 @@ func (k *KubernetesCluster) WatchPod(podTemplate v1.Pod, watchUntil v1.PodPhase,
 			default:
 				return fmt.Errorf("unsupported phase: %v", phase)
 			}
-			if restartCount >= retryTimes {
-				return fmt.Errorf("[Abort] after retry %d times", retryTimes)
+			if restartCount > retryTimes {
+				return fmt.Errorf("[Abort] after retry %d/%d times", restartCount, retryTimes)
 			}
 		}
 	}

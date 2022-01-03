@@ -65,7 +65,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&KubeConfig, "kubeconfig", kubeconfig, "absolute path to the kubeconfig file")
 	rootCmd.PersistentFlags().StringVarP(&Namespace, "namespace", "n", "hub", "default namespace of k8s")
 	rootCmd.PersistentFlags().String("registry", "docker.io", "container image pull registry")
-	rootCmd.PersistentFlags().String("tag", version, "container image tag")
+	rootCmd.PersistentFlags().String("image-tag", version, "container image tag")
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable Debug verbose")
 
 	viper.BindEnv("registry", "PRIMEHUB_AIRGAPPED_IMAGE_PREFIX")

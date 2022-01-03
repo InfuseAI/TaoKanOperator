@@ -101,7 +101,7 @@ func mountPvc(w io.Writer, args []string) error {
 	} else {
 		log.Warnf("[Skip] pod " + serverPod + " is already running")
 	}
-	result = "Server pod ready: rsync-worker-" + pvcName
+	result = "Server pod ready: rsync-server-" + pvcName
 	io.WriteString(w, result)
 
 	return nil
