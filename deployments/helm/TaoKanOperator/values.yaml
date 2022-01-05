@@ -21,7 +21,7 @@ exclusiveList:
 image:
   registry: docker.io
   repository: infuseai/taokan
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   # tag: "latest"
 

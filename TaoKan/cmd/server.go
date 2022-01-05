@@ -4,6 +4,9 @@ import (
 	"TaoKan/commander"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	v1 "k8s.io/api/core/v1"
+	"strings"
 )
 
 var serverPort uint
@@ -46,6 +49,16 @@ func serverEntrypoint(cmd *cobra.Command, args []string) {
 
 	log.Infoln("kubeconfig:", KubeConfig)
 	log.Infoln("namespace:", Namespace)
+	registry := strings.TrimRight(viper.GetString("registry"), "/")
+	tag := viper.GetString("image-tag")
+
+	log.Infof("embed image: %s/infuseai/rsync-server:%s", registry, tag)
+	pullPolicy := string(v1.PullAlways)
+	if string(v1.PullIfNotPresent) == viper.GetString("image-pull-policy") {
+		pullPolicy = string(v1.PullIfNotPresent)
+	}
+	log.Infof("pull policy: %s", pullPolicy)
+
 	rwo, _ := cmd.Flags().GetString("storage-class")
 	rwx, _ := cmd.Flags().GetString("storage-class-rwx")
 	if rwo != "" || rwx != "" {

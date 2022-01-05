@@ -127,7 +127,7 @@ func StartServer(config Config) error {
 		if err != nil {
 			io.WriteString(s, "[Error] "+err.Error())
 			log.Error(err)
-			s.Close()
+			s.Exit(75)
 		}
 		log.Infof("[Closed] Command: `%s`", strings.Join(s.Command(), " "))
 	})

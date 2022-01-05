@@ -37,6 +37,8 @@ spec:
           env:
             - name: IMAGE_TAG
               value: {{ .Values.image.tag | default .Chart.AppVersion }}
+            - name: IMAGE_PULL_POLICY
+              value: {{ .Values.image.pullPolicy }}
             - name: PRIMEHUB_AIRGAPPED_IMAGE_PREFIX
               value: {{ .Values.image.registry }}
           command:
@@ -104,6 +106,8 @@ spec:
           env:
             - name: IMAGE_TAG
               value: {{ .Values.image.tag | default .Chart.AppVersion }}
+            - name: IMAGE_PULL_POLICY
+              value: {{ .Values.image.pullPolicy }}
             - name: PRIMEHUB_AIRGAPPED_IMAGE_PREFIX
               value: {{ .Values.image.registry }}
           command:

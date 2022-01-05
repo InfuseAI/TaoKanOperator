@@ -8,6 +8,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
 	"os"
 	"strings"
@@ -29,6 +30,7 @@ var clientCmd = &cobra.Command{
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Infoln("Start TaoKan client mode")
+		showClientInfo()
 		clientEntrypoint(cmd, args)
 	},
 }
@@ -41,6 +43,8 @@ var rsyncCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 
 		log.Infoln("Start TaoKan to transfer data to remote cluster by rsync")
+		showClientInfo()
+
 		pvcName := args[0]
 		k8s := KubernetesAPI.GetInstance(KubeConfig)
 
@@ -153,20 +157,28 @@ func init() {
 	// is called directly, e.g.:
 }
 
-func clientEntrypoint(cmd *cobra.Command, args []string) {
-	// Flow
-
-	// Init k8s cluster
+func showClientInfo() {
 	log.Infoln("kubeconfig:", KubeConfig)
 	log.Infoln("namespace:", Namespace)
 	log.Infoln("remote cluster:", RemoteCluster)
 	log.Infoln("retmoe port:", RemotePort)
 
+	registry := strings.TrimRight(viper.GetString("registry"), "/")
+	tag := viper.GetString("image-tag")
+
+	log.Infof("embed image: %s/infuseai/rsync-server:%s", registry, tag)
+	pullPolicy := string(v1.PullAlways)
+	if string(v1.PullIfNotPresent) == viper.GetString("image-pull-policy") {
+		pullPolicy = string(v1.PullIfNotPresent)
+	}
+	log.Infof("pull policy: %s", pullPolicy)
+}
+
+func clientEntrypoint(cmd *cobra.Command, args []string) {
+	// Flow
 	// Prepare selected pvc list
 	//		Project & Dataset
 	//  	User
-	log.Infoln("[TaoKan Client]")
-	//showAvaliblePvcs(Namespace)
 	backupList, err := prepareBackupPvcList(cmd, Namespace)
 	if err != nil {
 		log.WithError(err)
@@ -196,6 +208,7 @@ func transferBackupData(cmd *cobra.Command, backupList backupList) {
 
 	log.Infof("[Process] Dataset data transfer")
 	transferPvcData(cmd, backupList.datasetPvcs)
+
 	log.Infof("[Completed] transfer backup data ")
 }
 
@@ -216,7 +229,7 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 		log.Infof("[Mount] Pvc %s in remote cluster", pvc.Name)
 		outputLogs, err := commanderWrapper(cmd, "mount", pvc.Name)
 		if err != nil {
-			log.Warnf("[Skip] Mount Pvc %s err: %v", pvc.Name, err)
+			log.Errorf("[Skip] Mount Pvc %s err: %v", pvc.Name, err)
 			continue
 		}
 		isRsyncServerReady := false
@@ -230,7 +243,7 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 		}
 
 		if !isRsyncServerReady {
-			log.Warnf("[Skip] Pvc %s due to rsync-server not running", pvc.Name)
+			log.Errorf("[Skip] Pvc %s due to rsync-server not running", pvc.Name)
 			continue
 		}
 
@@ -244,7 +257,7 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 		log.Infof("[Unmount] Pvc %s in remote cluster", pvc.Name)
 		outputLogs, err = commanderWrapper(cmd, "umount", pvc.Name)
 		if err != nil {
-			log.Warnf("[Skip] Unmount Pvc %s err: %v", pvc.Name, err)
+			log.Errorf("[Skip] Unmount Pvc %s err: %v", pvc.Name, err)
 			continue
 		}
 		for _, d := range outputLogs {

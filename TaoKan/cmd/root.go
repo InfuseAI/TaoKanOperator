@@ -66,10 +66,13 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&Namespace, "namespace", "n", "hub", "default namespace of k8s")
 	rootCmd.PersistentFlags().String("registry", "docker.io", "container image pull registry")
 	rootCmd.PersistentFlags().String("image-tag", version, "container image tag")
+	rootCmd.PersistentFlags().String("image-pull-policy", "Always", "container image pull policy")
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable Debug verbose")
 
 	viper.BindEnv("registry", "PRIMEHUB_AIRGAPPED_IMAGE_PREFIX")
 	viper.BindPFlag("registry", rootCmd.PersistentFlags().Lookup("registry"))
 	viper.BindEnv("image-tag", "IMAGE_TAG")
 	viper.BindPFlag("image-tag", rootCmd.PersistentFlags().Lookup("image-tag"))
+	viper.BindEnv("image-pull-policy", "IMAGE_PULL_POLICY")
+	viper.BindPFlag("image-pull-policy", rootCmd.PersistentFlags().Lookup("image-pull-policy"))
 }

@@ -286,6 +286,9 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 	imageName := strings.Split(podTemplate.Spec.Containers[0].Image, ":")[0]
 	imageTag := viper.GetString("image-tag")
 	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s:%s", registry, imageName, imageTag)
+	if viper.GetString("image-pull-policy") == string(v1.PullIfNotPresent) {
+		podTemplate.Spec.Containers[0].ImagePullPolicy = v1.PullIfNotPresent
+	}
 
 	// Apply pod
 	pod, err := k.Clientset.CoreV1().Pods(namespace).Create(context.TODO(), &podTemplate, metav1.CreateOptions{})
@@ -352,6 +355,9 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 	imageName := strings.Split(podTemplate.Spec.Containers[0].Image, ":")[0]
 	imageTag := viper.GetString("image-tag")
 	podTemplate.Spec.Containers[0].Image = fmt.Sprintf("%s/%s:%s", registry, imageName, imageTag)
+	if viper.GetString("image-pull-policy") == string(v1.PullIfNotPresent) {
+		podTemplate.Spec.Containers[0].ImagePullPolicy = v1.PullIfNotPresent
+	}
 
 	// Delete the existing pod
 	err = k.DeletePod(namespace, podTemplate.Name)

@@ -10,14 +10,15 @@ import (
 	"strings"
 )
 
-func getRsyncServerStatus(pvcName string) (string, error) {
+func getRsyncServerStatus(pvcName string) (string, string, error) {
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
 	_, usedByPods, err := k8s.GetPvc(Namespace, pvcName)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	rsyncServer := ""
+	phase := ""
 	if len(usedByPods) > 0 {
 		var pods []string
 		for _, pod := range usedByPods {
@@ -25,12 +26,13 @@ func getRsyncServerStatus(pvcName string) (string, error) {
 			role := pod.Labels["role"]
 			if managedBy == "TaoKan" && role == "rsync-server" {
 				rsyncServer = pod.Name
+				phase = string(pod.Status.Phase)
 			}
 			pods = append(pods, pod.Name)
 		}
 		log.Warnf("[Used By] Pod " + strings.Join(pods, ","))
 	}
-	return rsyncServer, nil
+	return rsyncServer, phase, nil
 }
 
 func status(w io.Writer, args []string) error {
@@ -86,21 +88,27 @@ func mountPvc(w io.Writer, args []string) error {
 	pvcName := args[0]
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
 	result := ""
-	serverPod, err := getRsyncServerStatus(pvcName)
+	serverPod, phase, err := getRsyncServerStatus(pvcName)
 	if err != nil {
 		return err
 	}
 
-	if serverPod == "" {
-		// Launch rsync-server
+	if serverPod != "" && phase == "Running" {
+		log.Warnf("[Skip] Pod %s is already running", serverPod)
+	} else {
+		if serverPod != "" {
+			log.Warnf("[Restart] Pod %s phase: %s", serverPod, phase)
+			log.Infof("[Delete] Pod %s", serverPod)
+			k8s.DeletePod(Namespace, serverPod)
+		}
+
 		log.Infoln("[Launch] rsync-server to mount pvc " + pvcName)
 		err := k8s.LaunchRsyncServerPod(Namespace, pvcName)
 		if err != nil {
 			return err
 		}
-	} else {
-		log.Warnf("[Skip] pod " + serverPod + " is already running")
 	}
+
 	result = "Server pod ready: rsync-server-" + pvcName
 	io.WriteString(w, result)
 
@@ -114,7 +122,7 @@ func umountPvc(w io.Writer, args []string) error {
 	pvcName := args[0]
 
 	k8s := KubernetesAPI.GetInstance(KubeConfig)
-	serverPod, err := getRsyncServerStatus(pvcName)
+	serverPod, _, err := getRsyncServerStatus(pvcName)
 	if err != nil {
 		return err
 	}
