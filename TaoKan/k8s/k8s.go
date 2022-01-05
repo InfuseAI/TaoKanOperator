@@ -155,7 +155,7 @@ func (k *KubernetesCluster) DeletePod(namespace string, podName string) error {
 		}
 		for event := range watcher.ResultChan() {
 			if event.Type == watch.Deleted {
-				log.Infof("[Deleted] Pod %s", podName)
+				log.Infof("[Deleted] Pod: %s", podName)
 				break
 			}
 		}
@@ -228,13 +228,13 @@ func (k *KubernetesCluster) ShowPvcStatus(namespace string, pvcs []v1.Persistent
 	var content string
 
 	for _, pvc := range pvcs {
-		content += fmt.Sprintf("\t%s\n", pvc.Name)
+		content += fmt.Sprintf("  %s\n", pvc.Name)
 		pods, err := k.ListPodsUsePvc(namespace, pvc.Name)
 		if err != nil {
 			return "", err
 		}
 		if len(pods) > 0 {
-			content += "\t\tUsed by: "
+			content += "    Used by: "
 			for _, pod := range pods {
 				content += fmt.Sprintf("%s ", pod.Name)
 			}
@@ -339,6 +339,8 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 			podTemplate.Spec.Containers[0].Env[i].Value = fmt.Sprintf("rsync-server-%s", pvcName)
 		case "REMOTE_NAMESPACE":
 			podTemplate.Spec.Containers[0].Env[i].Value = namespace
+		case "REMOTE_PVC_NAME":
+			podTemplate.Spec.Containers[0].Env[i].Value = pvcName
 		}
 	}
 	if retryTimes == 0 {
@@ -362,7 +364,7 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 	if err != nil {
 		return err
 	}
-	log.Infof("Pod %s created", podTemplate.Name)
+	log.Infof("[Created] Pod: %s", podTemplate.Name)
 
 	// Wait until rsync-worker pod completed
 	err = k.WatchPod(*pod, v1.PodSucceeded, retryTimes)

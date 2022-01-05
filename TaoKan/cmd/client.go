@@ -188,20 +188,24 @@ func clientEntrypoint(cmd *cobra.Command, args []string) {
 }
 
 func transferBackupData(cmd *cobra.Command, backupList backupList) {
-	log.Infof("Process User data transfer")
+	log.Infof("[Process] User data transfer")
 	transferPvcData(cmd, backupList.userPvcs)
 
-	log.Infof("Process Project data transfer")
+	log.Infof("[Process] Project data transfer")
 	transferPvcData(cmd, backupList.projectPvcs)
 
-	log.Infof("Process Dataset data transfer")
+	log.Infof("[Process] Dataset data transfer")
 	transferPvcData(cmd, backupList.datasetPvcs)
 	log.Infof("[Completed] transfer backup data ")
 }
 
 func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
-	for _, pvc := range pvcs {
+	count := len(pvcs)
+	for i, pvc := range pvcs {
+		log.Infof("[Backup] (%d/%d) Pvc: %s", i+1, count, pvc.Name)
+
 		// Ask remote cluster to touch PVC by rsyncServer pod
+		log.Infof("[Touch] Pvc %s in remote cluster", pvc.Name)
 		err := touchRemotePvc(cmd, pvc)
 		if err != nil {
 			log.Warnf("[Skip] pvc %s : %v", pvc.Name, err)
@@ -209,15 +213,16 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 		}
 
 		// Ask remote cluster to mount PVC by rsync-server pod
+		log.Infof("[Mount] Pvc %s in remote cluster", pvc.Name)
 		outputLogs, err := commanderWrapper(cmd, "mount", pvc.Name)
 		if err != nil {
-			log.Warnf("[Skip] pvc %s : %v", pvc.Name, err)
+			log.Warnf("[Skip] Mount Pvc %s err: %v", pvc.Name, err)
 			continue
 		}
 		isRsyncServerReady := false
 		for _, d := range outputLogs {
 			if d != "" {
-				log.Infof(d)
+				log.Debugf(d)
 				if strings.Contains(d, "Server pod ready:") {
 					isRsyncServerReady = true
 				}
@@ -236,14 +241,15 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 			log.Errorf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
 		}
 
+		log.Infof("[Unmount] Pvc %s in remote cluster", pvc.Name)
 		outputLogs, err = commanderWrapper(cmd, "umount", pvc.Name)
 		if err != nil {
-			log.Warnf("[Skip] Umount pvc %s from server : %v", pvc.Name, err)
+			log.Warnf("[Skip] Unmount Pvc %s err: %v", pvc.Name, err)
 			continue
 		}
 		for _, d := range outputLogs {
 			if d != "" {
-				log.Infof(d)
+				log.Debugf(d)
 			}
 		}
 	}
@@ -279,7 +285,7 @@ func touchRemotePvc(cmd *cobra.Command, pvc v1.PersistentVolumeClaim) error {
 	}
 	for _, d := range outputLogs {
 		if d != "" {
-			log.Infof(d)
+			log.Debugf(d)
 		}
 	}
 	return nil
@@ -354,9 +360,9 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 		return
 	}
 
-	log.Infof("[User] backup list")
+	log.Infof("[User] Backup list")
 	for _, pvc := range pvcs {
-		log.Infof("\t%s", pvc.Name)
+		log.Infof("  %s", pvc.Name)
 	}
 	backupList.userPvcs = pvcs
 
@@ -369,9 +375,9 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 	if err != nil {
 		return
 	}
-	log.Infof("[Porject] backup list")
+	log.Infof("[Porject] Backup list")
 	for _, pvc := range pvcs {
-		log.Infof("\t%s", pvc.Name)
+		log.Infof("  %s", pvc.Name)
 	}
 	backupList.projectPvcs = pvcs
 
@@ -385,9 +391,9 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 		return
 	}
 
-	log.Infof("[Dataset] backup list")
+	log.Infof("[Dataset] Backup list")
 	for _, pvc := range pvcs {
-		log.Infof("\t%s", pvc.Name)
+		log.Infof("  %s", pvc.Name)
 	}
 	backupList.datasetPvcs = pvcs
 

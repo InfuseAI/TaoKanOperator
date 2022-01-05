@@ -94,7 +94,7 @@ func serverCommandDispatcher(c *Commander, w io.Writer, commands []string) error
 }
 
 func clientCommandDispatcher(c *Commander, command string, args []string) (string, error) {
-	log.Infof("[Run] Command: `%s`", command)
+	log.Debugf("[Run] Command: `%s`", command)
 	if command == "" {
 		return "", errors.New("[Error] No command provided.")
 	}
