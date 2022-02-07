@@ -1,0 +1,29 @@
+#! /bin/bash
+IFS=$'\n'
+
+log_path=${1:-./backup_log}
+
+if [ ! -d $log_path ]; then
+    echo "Usage: $(basename $0) [<rsync-log-path>]"
+    exit 1
+fi
+
+
+RE=.+-[0-9]+-[0-9]+-[0-9]+-[0-9]+.log
+for f in $(ls ${log_path})
+do
+    if [[ $f =~ $RE ]]; then
+        for data in $(cat $log_path/$f)
+        do
+            itemize=$(echo "$data" | awk '{print $4}')
+            if [ "${itemize:0:2}" == "<f" ]; then
+                file=$(echo $data | awk '{print $5}' )
+                if [ -f "$file" ]; then
+                    echo "$file -> copied"
+                else
+                    echo "$file -> missing"
+                fi
+            fi
+        done
+    fi
+done

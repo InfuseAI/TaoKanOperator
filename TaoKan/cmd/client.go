@@ -152,6 +152,9 @@ func init() {
 	clientCmd.PersistentFlags().Int32("retry", 0, "Rsync-worker pod restart time")
 
 	clientCmd.Flags().Bool("daemon", false, "Enable daemon mode")
+	clientCmd.Flags().Bool("disable-user", false, "Disable backup user")
+	clientCmd.Flags().Bool("disable-project", false, "Disable backup project")
+	clientCmd.Flags().Bool("disable-dataset", false, "Disable backup dataset")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
@@ -364,51 +367,63 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 	var pvcs []v1.PersistentVolumeClaim
 
 	// Get User Backup PVC List
-	pvcs, err = whiteListFactory(cmd, namespace, userListFlag)
-	if err != nil {
-		return
-	}
-	pvcs, err = exclusiveListFactory(cmd, pvcs, userExclusiveListFlag)
-	if err != nil {
-		return
-	}
+	if disable, _ := cmd.Flags().GetBool("disable-user"); !disable {
+		pvcs, err = whiteListFactory(cmd, namespace, userListFlag)
+		if err != nil {
+			return
+		}
+		pvcs, err = exclusiveListFactory(cmd, pvcs, userExclusiveListFlag)
+		if err != nil {
+			return
+		}
 
-	log.Infof("[User] Backup list")
-	for _, pvc := range pvcs {
-		log.Infof("  %s", pvc.Name)
+		log.Infof("[User] Backup list")
+		for _, pvc := range pvcs {
+			log.Infof("  %s", pvc.Name)
+		}
+		backupList.userPvcs = pvcs
+	} else {
+		log.Warnf("[User] Backup disabled")
 	}
-	backupList.userPvcs = pvcs
 
 	// Get Project Backup PVC List
-	pvcs, err = whiteListFactory(cmd, namespace, projectListFlag)
-	if err != nil {
-		return
+	if disable, _ := cmd.Flags().GetBool("disable-project"); !disable {
+		pvcs, err = whiteListFactory(cmd, namespace, projectListFlag)
+		if err != nil {
+			return
+		}
+		pvcs, err = exclusiveListFactory(cmd, pvcs, projectExclusiveListFlag)
+		if err != nil {
+			return
+		}
+		log.Infof("[Porject] Backup list")
+		for _, pvc := range pvcs {
+			log.Infof("  %s", pvc.Name)
+		}
+		backupList.projectPvcs = pvcs
+	} else {
+		log.Warnf("[Project] Backup disabled")
 	}
-	pvcs, err = exclusiveListFactory(cmd, pvcs, projectExclusiveListFlag)
-	if err != nil {
-		return
-	}
-	log.Infof("[Porject] Backup list")
-	for _, pvc := range pvcs {
-		log.Infof("  %s", pvc.Name)
-	}
-	backupList.projectPvcs = pvcs
 
 	// Get Dataset Backup PVC List
-	pvcs, err = whiteListFactory(cmd, namespace, datasetListFlag)
-	if err != nil {
-		return
-	}
-	pvcs, err = exclusiveListFactory(cmd, pvcs, datasetExclusiveListFlag)
-	if err != nil {
-		return
-	}
+	if disable, _ := cmd.Flags().GetBool("disable-dataset"); !disable {
+		pvcs, err = whiteListFactory(cmd, namespace, datasetListFlag)
+		if err != nil {
+			return
+		}
+		pvcs, err = exclusiveListFactory(cmd, pvcs, datasetExclusiveListFlag)
+		if err != nil {
+			return
+		}
 
-	log.Infof("[Dataset] Backup list")
-	for _, pvc := range pvcs {
-		log.Infof("  %s", pvc.Name)
+		log.Infof("[Dataset] Backup list")
+		for _, pvc := range pvcs {
+			log.Infof("  %s", pvc.Name)
+		}
+		backupList.datasetPvcs = pvcs
+	} else {
+		log.Warnf("[Dataset] Backup disabled")
 	}
-	backupList.datasetPvcs = pvcs
 
 	return
 }

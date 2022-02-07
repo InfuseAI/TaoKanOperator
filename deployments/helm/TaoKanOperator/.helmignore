@@ -23,3 +23,6 @@
 .vscode/
 apply-server.sh
 apply-client.sh
+helm_override
+whiteList
+exclusiveList

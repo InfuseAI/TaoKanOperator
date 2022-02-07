@@ -7,16 +7,18 @@ taoKan:
   remoteCluster: ""
   retryTimes: "0"
 
-
-whiteList:
-  user: |
-  project: |
-  dataset: |
-
-exclusiveList:
-  user: |
-  project: |
-  dataset: |
+user:
+  enabled: true
+  whiteList: |
+  exclusiveList: |
+project:
+  enabled: true
+  whiteList: |
+  exclusiveList: |
+dataset:
+  enabled: true
+  whiteList: |
+  exclusiveList: |
 
 image:
   registry: docker.io

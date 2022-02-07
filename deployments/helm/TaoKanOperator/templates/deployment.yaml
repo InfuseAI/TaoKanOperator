@@ -135,6 +135,15 @@ spec:
             - "/etc/taokan/dataset/dataset-list.txt"
             - "--dataset-exclusive-list"
             - "/etc/taokan/dataset/dataset-exclusive-list.txt"
+            {{- if not .Values.user.enabled }}
+            - "--disable-user"
+            {{- end }}
+            {{- if not .Values.project.enabled }}
+            - "--disable-project"
+            {{- end }}
+            {{- if not .Values.dataset.enabled }}
+            - "--disable-dataset"
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

@@ -214,13 +214,13 @@ func (k *KubernetesCluster) ListUserPvc(namespace string) ([]v1.PersistentVolume
 
 func (k *KubernetesCluster) ListProjectPvc(namespace string) ([]v1.PersistentVolumeClaim, error) {
 	return k.ListPvcByFilter(namespace, func(pvc v1.PersistentVolumeClaim) bool {
-		return strings.HasPrefix(pvc.Name, "data-nfs-project")
+		return strings.HasPrefix(pvc.Name, "project-")
 	})
 }
 
 func (k *KubernetesCluster) ListDatasetPvc(namespace string) ([]v1.PersistentVolumeClaim, error) {
 	return k.ListPvcByFilter(namespace, func(pvc v1.PersistentVolumeClaim) bool {
-		return strings.HasPrefix(pvc.Name, "data-nfs-dataset")
+		return strings.HasPrefix(pvc.Name, "dataset-")
 	})
 }
 

@@ -17,6 +17,7 @@ RUN sed -ri 's/^#?PermitRootLogin\s+.*/PermitRootLogin yes/' /etc/ssh/sshd_confi
 # RUN sed -ri 's/UsePAM yes/#UsePAM yes/g' /etc/ssh/sshd_config
 
 RUN mkdir /root/.ssh
+RUN mkdir /root/log-analyzer
 RUN mkdir /data
 
 EXPOSE 22
@@ -24,5 +25,6 @@ EXPOSE 22
 ADD publickey_api.py /root/
 ADD ensure_sshd.sh /root/
 ADD start_rsync.sh /root/
+ADD log-analyzer/* /root/log-analyzer/
 
 CMD ["/bin/bash", "/root/ensure_sshd.sh"]
