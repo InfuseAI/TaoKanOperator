@@ -15,10 +15,12 @@ project:
   enabled: true
   whiteList: |
   exclusiveList: |
+  backupTarget: pvc
 dataset:
   enabled: true
   whiteList: |
   exclusiveList: |
+  backupTarget: pvc
 
 image:
   registry: docker.io

@@ -152,3 +152,8 @@ build
 TaoKanOperator-*.tar.gz
 taokan-*.tgz
 taokan-*.txt
+helm_override
+whiteList
+exclusiveList
+taokan-report-*.log
+taokan-static-linux

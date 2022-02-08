@@ -23,6 +23,8 @@
 .vscode/
 apply-server.sh
 apply-client.sh
+gen-report.sh
 helm_override
 whiteList
 exclusiveList
+taokan-static-linux

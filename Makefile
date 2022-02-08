@@ -32,12 +32,15 @@ deploy-rsync-server:
 deploy-taokan-operator:
 	make -C TaoKan deploy-image VERSION=$(VERSION)
 
-package-helm-chart:
+package-helm-chart: build-taokan-operator
 	@mkdir -p ./build
 	@cp -rf ./deployments/helm/TaoKanOperator/ ./build/TaoKanOperator
 	@sed $(SED_FLAGS) 's/latest/$(VERSION)/g' ./build/TaoKanOperator/Chart.yaml
+	@docker create --name taokan-operator-static-build infuseai/taokan:$(VERSION)
+	@docker cp taokan-operator-static-build:/go/src/app/TaoKan/bin/taokan-static-linux ./build/TaoKanOperator/taokan-static-linux
 	@tar czf TaoKanOperator-$(VERSION).tar.gz -C ./build ./TaoKanOperator/
 	@rm -rf ./build
+	@docker rm taokan-operator-static-build
 	@echo "[Release] helm cahrt"
 	@ls -l TaoKanOperator-$(VERSION).tar.gz
 

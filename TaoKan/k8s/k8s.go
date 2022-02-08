@@ -37,9 +37,13 @@ type KubernetesCluster struct {
 }
 
 const (
-	UserPvcPrefix    string = "claim-"
-	ProjectPvcPrefix string = "data-nfs-project-"
-	DatasetPvcPrefix string = "data-nfs-dataset-"
+	UserPvcPrefix         string = "claim-"
+	ProjectPvcPrefix      string = "project-"
+	DatasetPvcPrefix      string = "dataset-"
+	ProjectDataPvcPrefix  string = "data-nfs-project-"
+	DatasetDataPvcPrefix  string = "data-nfs-dataset-"
+	ProjectDataPvcPostfix string = "-0"
+	DatasetDataPvcPostfix string = "-0"
 )
 
 var instance *KubernetesCluster
@@ -224,6 +228,18 @@ func (k *KubernetesCluster) ListDatasetPvc(namespace string) ([]v1.PersistentVol
 	})
 }
 
+func (k *KubernetesCluster) ListProjectDataPvc(namespace string) ([]v1.PersistentVolumeClaim, error) {
+	return k.ListPvcByFilter(namespace, func(pvc v1.PersistentVolumeClaim) bool {
+		return strings.HasPrefix(pvc.Name, "data-nfs-project-")
+	})
+}
+
+func (k *KubernetesCluster) ListDatasetDataPvc(namespace string) ([]v1.PersistentVolumeClaim, error) {
+	return k.ListPvcByFilter(namespace, func(pvc v1.PersistentVolumeClaim) bool {
+		return strings.HasPrefix(pvc.Name, "data-nfs-dataset-")
+	})
+}
+
 func (k *KubernetesCluster) ShowPvcStatus(namespace string, pvcs []v1.PersistentVolumeClaim) (string, error) {
 	var content string
 
@@ -401,6 +417,7 @@ func (k *KubernetesCluster) WatchPod(podTemplate v1.Pod, watchUntil v1.PodPhase,
 		return err
 	}
 
+	startTime := time.Now()
 	for {
 		select {
 		case e, ok := <-watcher.ResultChan():
@@ -418,6 +435,11 @@ func (k *KubernetesCluster) WatchPod(podTemplate v1.Pod, watchUntil v1.PodPhase,
 			case v1.PodPending:
 				if msg != "" {
 					return fmt.Errorf("[%v] Pod: %s reason: %v msg: %s", status, pod.Name, reason, msg)
+				}
+				currentTime := time.Now()
+				duration := currentTime.Sub(startTime)
+				if duration >= time.Minute*5 {
+					return fmt.Errorf("[%v] Pod: %s abort due to pending timeout (5 mins)", status, pod.Name)
 				}
 				continue
 			case v1.PodRunning:

@@ -155,6 +155,8 @@ func init() {
 	clientCmd.Flags().Bool("disable-user", false, "Disable backup user")
 	clientCmd.Flags().Bool("disable-project", false, "Disable backup project")
 	clientCmd.Flags().Bool("disable-dataset", false, "Disable backup dataset")
+	clientCmd.Flags().Bool("backup-project-data-pvc", false, "Backup project data pvc. Ex. data-nfs-project-xxx-0")
+	clientCmd.Flags().Bool("backup-dataset-data-pvc", false, "Backup dataset data pvc. Ex. data-nfs-dataset-xxx-0")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
@@ -204,21 +206,54 @@ func clientEntrypoint(cmd *cobra.Command, args []string) {
 
 func transferBackupData(cmd *cobra.Command, backupList backupList) {
 	log.Infof("[Process] User data transfer")
-	transferPvcData(cmd, backupList.userPvcs)
+	userSucceed := transferPvcData(cmd, backupList.userPvcs)
 
 	log.Infof("[Process] Project data transfer")
-	transferPvcData(cmd, backupList.projectPvcs)
+	projectSucceed := transferPvcData(cmd, backupList.projectPvcs)
 
 	log.Infof("[Process] Dataset data transfer")
-	transferPvcData(cmd, backupList.datasetPvcs)
+	datasetSucceed := transferPvcData(cmd, backupList.datasetPvcs)
 
+	log.Infof("[Summary]")
+	userTotal := len(backupList.userPvcs)
+	userSkipped := userTotal - userSucceed
+	log.Infof("[User] total: %d, succeed: %d, skipped: %d", userTotal, userSucceed, userSkipped)
+
+	projectTotal := len(backupList.projectPvcs)
+	projectSkipped := projectTotal - projectSucceed
+	log.Infof("[Project] total: %d, succeed: %d, skipped: %d", projectTotal, projectSucceed, projectSkipped)
+
+	datasetTotal := len(backupList.datasetPvcs)
+	datasetSkipped := datasetTotal - datasetSucceed
+	log.Infof("[Dataset] total: %d, succeed: %d, skipped: %d", datasetTotal, datasetSucceed, datasetSkipped)
 	log.Infof("[Completed] transfer backup data ")
 }
 
-func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
+func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) int {
 	count := len(pvcs)
+	completedCount := 0
 	for i, pvc := range pvcs {
 		log.Infof("[Backup] (%d/%d) Pvc: %s", i+1, count, pvc.Name)
+		k8s := KubernetesAPI.GetInstance(KubeConfig)
+		if pvc.Spec.AccessModes[0] == v1.ReadWriteOnce {
+			usedPods, err := k8s.ListPodsUsePvc(Namespace, pvc.Name)
+			if err != nil {
+				log.Errorf("[Skip] Check RWO Pvc %s err: %v", pvc.Name, err)
+				continue
+			}
+			pvcIsMountedByOtherPod := false
+			for _, pod := range usedPods {
+				if pod.Labels["app"] != "rsync-worker" {
+					pvcIsMountedByOtherPod = true
+					log.Warnf("[Occupied] pvc %s is used by pod %s", pvc.Name, pod.Name)
+					break
+				}
+			}
+			if pvcIsMountedByOtherPod {
+				log.Warnf("[Skip] pvc %s, rwo pvc is mounted by other pod", pvc.Name)
+				continue
+			}
+		}
 
 		// Ask remote cluster to touch PVC by rsyncServer pod
 		log.Infof("[Touch] Pvc %s in remote cluster", pvc.Name)
@@ -250,11 +285,12 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 			continue
 		}
 
-		k8s := KubernetesAPI.GetInstance(KubeConfig)
 		retryTimes, _ := cmd.Flags().GetInt32("retry")
 		err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, retryTimes)
 		if err != nil {
 			log.Errorf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
+		} else {
+			completedCount++
 		}
 
 		log.Infof("[Unmount] Pvc %s in remote cluster", pvc.Name)
@@ -269,6 +305,7 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) {
 			}
 		}
 	}
+	return completedCount
 }
 
 func touchRemotePvc(cmd *cobra.Command, pvc v1.PersistentVolumeClaim) error {
@@ -442,11 +479,21 @@ func exclusiveListFactory(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim, f
 		pvcPrefix = KubernetesAPI.UserPvcPrefix
 		pvcPostfix = ""
 	case projectExclusiveListFlag:
-		pvcPrefix = KubernetesAPI.ProjectPvcPrefix
-		pvcPostfix = "-0"
+		if ok, _ := cmd.Flags().GetBool("backup-project-data-pvc"); ok {
+			pvcPrefix = KubernetesAPI.ProjectDataPvcPrefix
+			pvcPostfix = KubernetesAPI.ProjectDataPvcPostfix
+		} else {
+			pvcPrefix = KubernetesAPI.ProjectPvcPrefix
+			pvcPostfix = ""
+		}
 	case datasetExclusiveListFlag:
-		pvcPrefix = KubernetesAPI.DatasetPvcPrefix
-		pvcPostfix = "-0"
+		if ok, _ := cmd.Flags().GetBool("backup-dataset-data-pvc"); ok {
+			pvcPrefix = KubernetesAPI.DatasetDataPvcPrefix
+			pvcPostfix = KubernetesAPI.DatasetDataPvcPostfix
+		} else {
+			pvcPrefix = KubernetesAPI.DatasetPvcPrefix
+			pvcPostfix = ""
+		}
 	default:
 		return nil, errors.New(fmt.Sprintf("Unsupported flag: %v", flagName))
 	}
@@ -485,13 +532,25 @@ func whiteListFactory(cmd *cobra.Command, namespace string, flagName string) ([]
 		pvcPrefix = KubernetesAPI.UserPvcPrefix
 		pvcPostfix = ""
 	case projectListFlag:
-		listFunc = k8s.ListProjectPvc
-		pvcPrefix = KubernetesAPI.ProjectPvcPrefix
-		pvcPostfix = "-0"
+		if ok, _ := cmd.Flags().GetBool("backup-project-data-pvc"); ok {
+			listFunc = k8s.ListProjectDataPvc
+			pvcPrefix = KubernetesAPI.ProjectDataPvcPrefix
+			pvcPostfix = KubernetesAPI.ProjectDataPvcPostfix
+		} else {
+			listFunc = k8s.ListProjectPvc
+			pvcPrefix = KubernetesAPI.ProjectPvcPrefix
+			pvcPostfix = ""
+		}
 	case datasetListFlag:
-		listFunc = k8s.ListDatasetPvc
-		pvcPrefix = KubernetesAPI.DatasetPvcPrefix
-		pvcPostfix = "-0"
+		if ok, _ := cmd.Flags().GetBool("backup-dataset-data-pvc"); ok {
+			listFunc = k8s.ListDatasetDataPvc
+			pvcPrefix = KubernetesAPI.DatasetDataPvcPrefix
+			pvcPostfix = KubernetesAPI.DatasetDataPvcPostfix
+		} else {
+			listFunc = k8s.ListDatasetPvc
+			pvcPrefix = KubernetesAPI.DatasetPvcPrefix
+			pvcPostfix = ""
+		}
 	default:
 		return nil, errors.New(fmt.Sprintf("Unsupported flag: %v", flagName))
 	}

@@ -144,6 +144,12 @@ spec:
             {{- if not .Values.dataset.enabled }}
             - "--disable-dataset"
             {{- end }}
+            {{- if eq .Values.project.backupTarget "data" }}
+            - "--backup-project-data-pvc"
+            {{- end }}
+            {{- if eq .Values.dataset.backupTarget "data" }}
+            - "--backup-dataset-data-pvc"
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

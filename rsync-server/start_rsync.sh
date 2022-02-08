@@ -7,8 +7,8 @@ start_rsync() {
   # Check installed rsync
   if command -v rsync &>/dev/null; then
     echo "[Start] Backup by rsync ..."
-    echo "  CMD: rsync -azcrvhP --bwlimit ${RSYNC_BWLIMIT} --info=progress2 --no-i-r --log-file=/var/log/rsync.log /data/ remote-rsync-server:/data/"
-    rsync -azcrvhP --bwlimit ${RSYNC_BWLIMIT} --info=progress2 --no-i-r --log-file=/var/log/rsync.log /data/ remote-rsync-server:/data/ | tee /var/log/rsync_progress.log
+    echo "  CMD: rsync -azcrvhP --bwlimit ${RSYNC_BWLIMIT} --info=progress2 --no-i-r  --stats --log-file=/var/log/rsync.log /data/ remote-rsync-server:/data/"
+    rsync -azcrvhP --bwlimit ${RSYNC_BWLIMIT} --info=progress2 --no-i-r  --stats --log-file=/var/log/rsync.log /data/ remote-rsync-server:/data/ | tee /var/log/rsync_progress.log
     echo "[Completed] Backup"
 
     ssh remote-rsync-server mkdir -p /data/backup_log/
@@ -20,6 +20,7 @@ start_rsync() {
     echo "[Start] Copy rsync log: ${rsync_log} & ${progress_log}"
     rsync -zvh --bwlimit ${RSYNC_BWLIMIT} /var/log/${rsync_log} remote-rsync-server:/data/backup_log/
     rsync -zvh --bwlimit ${RSYNC_BWLIMIT} /var/log/${progress_log} remote-rsync-server:/data/backup_log/
+    rsync -zvh --bwlimit ${RSYNC_BWLIMIT} /root/log-analyzer/* remote-rsync-server:/data/
     echo "[Completed]"
   fi
 }
