@@ -18,7 +18,7 @@ error() {
 parse_rsync_summary_log() {
   pod_name=$1
   echo "[ ${pod_name/rsync-worker-/} ]" >> $LOG_FILE
-  kubectl logs -n hub $pod_name --tail 40 | grep "Number of files" -A12 >> $LOG_FILE
+  kubectl logs -n hub $pod_name --tail 40 | grep "Number of files" -A15 >> $LOG_FILE
   echo "" >> $LOG_FILE
 }
 
@@ -34,7 +34,7 @@ handle_uknown_status_pod() {
   pod_status=$2
   echo "[ ${pod_name/rsync-worker-/} ]" >> $LOG_FILE
   echo "Pod $pod_name is failed due to $pod_status" >> $LOG_FILE
-  kubectl describe pod -n hub rsync-worker-claim-kent | grep "State:" -A21 >> $LOG_FILE
+  kubectl describe pod -n hub $pod_name | grep "State:" -A21 >> $LOG_FILE
   echo "" >> $LOG_FILE
 }
 
