@@ -110,6 +110,10 @@ func (k *KubernetesCluster) SetRwxStorageClass(storageClass string) {
 	k.defaultStorageClass.rwx = storageClass
 }
 
+func (k *KubernetesCluster) GetConfigMap(namespace string, name string) (*v1.ConfigMap, error) {
+	return k.Clientset.CoreV1().ConfigMaps(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+}
+
 func (k *KubernetesCluster) ListPods(namespace string) ([]v1.Pod, error) {
 	podList, err := k.Clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {

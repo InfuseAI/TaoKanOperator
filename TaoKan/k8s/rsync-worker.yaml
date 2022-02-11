@@ -28,6 +28,18 @@ spec:
         secretKeyRef:
           name: rsync-ssh-key
           key: privatekey
+    - name: RSYNC_BWLIMIT
+      valueFrom:
+        configMapKeyRef:
+          name: rsync-worker-config
+          key: rsync-bwlimit
+          optional: true
+    - name: RSYNC_CMD_OPTIONS
+      valueFrom:
+        configMapKeyRef:
+          name: rsync-worker-config
+          key: rsync-cmd-options
+          optional: true
     volumeMounts:
     - name: data-volume
       mountPath: /data
@@ -36,8 +48,8 @@ spec:
         cpu: 200m
         memory: 512Mi
       limits:
-        cpu: 1000m
-        memory: 512Mi
+        cpu: 2000m
+        memory: 2Gi
   restartPolicy: OnFailure
   volumes:
   - name: data-volume

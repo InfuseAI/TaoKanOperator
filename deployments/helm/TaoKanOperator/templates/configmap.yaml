@@ -50,4 +50,21 @@ data:
     {{ .Values.dataset.whiteList | nindent 4 }}
   dataset-exclusive-list.txt: |
     {{ .Values.dataset.exclusiveList | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rsync-worker-config
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: pre-install
+  labels:
+    app: rsync-worker
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+data:
+  rsync-bwlimit: "250000"
+  rsync-cmd-options: "-azcrvhP --info=progress2 --no-i-r --stats"
+  rsync-pre-hook-script: |
+  rsync-post-hook-script: |
 {{- end }}
