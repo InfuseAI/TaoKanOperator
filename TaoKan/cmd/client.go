@@ -150,6 +150,7 @@ func init() {
 	clientCmd.PersistentFlags().String("project-exclusive-list", "", "Project exclusion list")
 
 	clientCmd.PersistentFlags().Int32("retry", 0, "Rsync-worker pod restart time")
+	clientCmd.PersistentFlags().Int("worker-retry", 0, "Rsync-worker worker retry time")
 
 	clientCmd.Flags().Bool("daemon", false, "Enable daemon mode")
 	clientCmd.Flags().Bool("disable-user", false, "Disable backup user")
@@ -205,14 +206,15 @@ func clientEntrypoint(cmd *cobra.Command, args []string) {
 }
 
 func transferBackupData(cmd *cobra.Command, backupList backupList) {
-	log.Infof("[Process] User data transfer")
-	userSucceed := transferPvcData(cmd, backupList.userPvcs)
 
 	log.Infof("[Process] Project data transfer")
 	projectSucceed := transferPvcData(cmd, backupList.projectPvcs)
 
 	log.Infof("[Process] Dataset data transfer")
 	datasetSucceed := transferPvcData(cmd, backupList.datasetPvcs)
+
+	log.Infof("[Process] User data transfer")
+	userSucceed := transferPvcData(cmd, backupList.userPvcs)
 
 	log.Infof("[Summary]")
 	userTotal := len(backupList.userPvcs)
@@ -285,11 +287,19 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) int {
 			continue
 		}
 
-		retryTimes, _ := cmd.Flags().GetInt32("retry")
-		err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, retryTimes)
-		if err != nil {
-			log.Errorf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
-		} else {
+		podRetryTimes, _ := cmd.Flags().GetInt32("retry")
+		workerRetryTimes, _ := cmd.Flags().GetInt("worker-retry")
+
+		for i := 0; i <= workerRetryTimes; i++ {
+			if i > 0 {
+				log.Infof("[Retry] Relaunch worker %v retry: %d/%d", "rsync-worker-"+pvc.Name, i, workerRetryTimes)
+			}
+			err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, podRetryTimes)
+			if err != nil {
+				log.Errorf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
+			}
+		}
+		if err == nil {
 			completedCount++
 		}
 
@@ -403,26 +413,6 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 ) {
 	var pvcs []v1.PersistentVolumeClaim
 
-	// Get User Backup PVC List
-	if disable, _ := cmd.Flags().GetBool("disable-user"); !disable {
-		pvcs, err = whiteListFactory(cmd, namespace, userListFlag)
-		if err != nil {
-			return
-		}
-		pvcs, err = exclusiveListFactory(cmd, pvcs, userExclusiveListFlag)
-		if err != nil {
-			return
-		}
-
-		log.Infof("[User] Backup list")
-		for _, pvc := range pvcs {
-			log.Infof("  %s", pvc.Name)
-		}
-		backupList.userPvcs = pvcs
-	} else {
-		log.Warnf("[User] Backup disabled")
-	}
-
 	// Get Project Backup PVC List
 	if disable, _ := cmd.Flags().GetBool("disable-project"); !disable {
 		pvcs, err = whiteListFactory(cmd, namespace, projectListFlag)
@@ -460,6 +450,26 @@ func prepareBackupPvcList(cmd *cobra.Command, namespace string) (
 		backupList.datasetPvcs = pvcs
 	} else {
 		log.Warnf("[Dataset] Backup disabled")
+	}
+
+	// Get User Backup PVC List
+	if disable, _ := cmd.Flags().GetBool("disable-user"); !disable {
+		pvcs, err = whiteListFactory(cmd, namespace, userListFlag)
+		if err != nil {
+			return
+		}
+		pvcs, err = exclusiveListFactory(cmd, pvcs, userExclusiveListFlag)
+		if err != nil {
+			return
+		}
+
+		log.Infof("[User] Backup list")
+		for _, pvc := range pvcs {
+			log.Infof("  %s", pvc.Name)
+		}
+		backupList.userPvcs = pvcs
+	} else {
+		log.Warnf("[User] Backup disabled")
 	}
 
 	return

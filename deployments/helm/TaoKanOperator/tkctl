@@ -1,0 +1,75 @@
+#! /bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
+
+usage() {
+  local SELF=$(basename $0)
+  cat << EOF
+  Usage:
+    $SELF <command>
+
+  Command:
+    status          : Show the status of TaoKan Operator
+    up              : Scale up the TaoKan Operator
+    down            : Scale down the TaoKan Operator
+    restart         : Restart the TaoKan Operator
+    logs [options]  : Show the logs of TaoKan Operator
+    report          : Generate the report of TaoKan rsync-worker pods
+    config          : Edit the configuration of TaoKan Operator
+    worker          : Show the rsync-worker pods status
+    watch [<pod>]   : Watch the rsync-worker progress log
+    help            : Show this message
+EOF
+}
+
+command=${1:-status}
+case "${command}" in
+  'status')
+    echo "[ TaoKan Operator Pod Status ]"
+    kubectl get pod -n hub -l app.kubernetes.io/name=taokan-operator
+  ;;
+  'up')
+    kubectl scale deploy -n hub taokan-operator --replicas=1
+  ;;
+  'down')
+    kubectl scale deploy -n hub taokan-operator --replicas=0
+  ;;
+  'restart')
+    kubectl delete pod -n hub -l app.kubernetes.io/name=taokan-operator
+  ;;
+  'logs' | 'log')
+    shift
+    taokan_operator_pod=$(kubectl get pod -n hub -l app.kubernetes.io/name=taokan-operator | grep Running | awk '{print $1}')
+    kubectl logs -n hub ${taokan_operator_pod} $@
+  ;;
+  'report')
+    exec $DIR/gen-report.sh
+  ;;
+  'config')
+    kubectl edit cm -n hub rsync-worker-config
+    echo "ConfigMap 'rsync-worker-config' had been updated, please restart TaoKan-Operator to apply the change."
+  ;;
+  'worker')
+    shift
+    options=${1:-}
+
+    if [[ "$options" == "-w" || "$options" == "--watch" ]]; then
+      watch kubectl get pod -n hub -l app=rsync-worker
+    else
+      kubectl get pod -n hub -l app=rsync-worker -o wide
+    fi
+  ;;
+  'watch')
+    shift
+    rsync_worker_pod=${1:-}
+    exec $DIR/watch-rsync-woker $rsync_worker_pod
+  ;;
+  'help')
+    usage
+  ;;
+  *)
+    usage
+    exit 1
+  ;;
+esac
+

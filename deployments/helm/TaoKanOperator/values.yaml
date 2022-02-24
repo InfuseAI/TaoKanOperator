@@ -5,7 +5,8 @@ taoKan:
   serverMode: false
   remotePort: 2022
   remoteCluster: ""
-  retryTimes: "0"
+  podRetryTimes: "0"
+  workerRetryTimes: "0"
 
 user:
   enabled: true

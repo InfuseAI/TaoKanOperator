@@ -148,12 +148,23 @@ func (k *KubernetesCluster) ListPodsUsePvc(namespace string, pvcName string) ([]
 	})
 }
 
+func (k *KubernetesCluster) GetPod(namespace string, podName string) (*v1.Pod, error) {
+	ctx := context.TODO()
+	return k.Clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+}
+
 func (k *KubernetesCluster) DeletePod(namespace string, podName string) error {
 	ctx := context.TODO()
 
+	_, podErr := k.GetPod(namespace, podName)
+	if podErr != nil {
+		log.Debugf("[Skipped] Pod %s is already deleted", podName)
+		return nil
+	}
+
 	ch := make(chan error)
 	go func() {
-		timeoutSeconds := int64(60)
+		timeoutSeconds := int64(180)
 		watcher, err := k.Clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{
 			FieldSelector:  "metadata.name=" + podName,
 			TimeoutSeconds: &timeoutSeconds,
@@ -343,7 +354,7 @@ func (k *KubernetesCluster) LaunchRsyncServerPod(namespace string, pvcName strin
 //go:embed rsync-worker.yaml
 var RsyncWorkerYamlTemplate []byte
 
-func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string, pvcName string, retryTimes int32) error {
+func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string, pvcName string, podRetryTimes int32) error {
 	var podTemplate v1.Pod
 	err := yaml.Unmarshal(RsyncWorkerYamlTemplate, &podTemplate)
 	if err != nil {
@@ -366,7 +377,7 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 			podTemplate.Spec.Containers[0].Env[i].Value = pvcName
 		}
 	}
-	if retryTimes == 0 {
+	if podRetryTimes == 0 {
 		podTemplate.Spec.RestartPolicy = v1.RestartPolicyNever
 	}
 
@@ -393,8 +404,9 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 	log.Infof("[Created] Pod: %s", podTemplate.Name)
 
 	// Wait until rsync-worker pod completed
-	err = k.WatchPod(*pod, v1.PodSucceeded, retryTimes)
+	err = k.WatchPod(*pod, v1.PodSucceeded, podRetryTimes)
 	if err != nil {
+		log.Debugf("Pod %s launch failed: %v", pod.Name, err)
 		if pod.Spec.RestartPolicy != v1.RestartPolicyNever {
 			k.DeletePod(pod.Namespace, pod.Name)
 		}
@@ -403,7 +415,7 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 	return nil
 }
 
-func (k *KubernetesCluster) WatchPod(podTemplate v1.Pod, watchUntil v1.PodPhase, retryTimes int32) error {
+func (k *KubernetesCluster) WatchPod(podTemplate v1.Pod, watchUntil v1.PodPhase, podRetryTimes int32) error {
 	ctx := context.TODO()
 	selector := "metadata.name=" + podTemplate.Name
 	watchFunc := func(options metav1.ListOptions) (watch.Interface, error) {
@@ -446,11 +458,12 @@ func (k *KubernetesCluster) WatchPod(podTemplate v1.Pod, watchUntil v1.PodPhase,
 					return fmt.Errorf("[%v] Pod: %s abort due to pending timeout (5 mins)", status, pod.Name)
 				}
 				continue
+
 			case v1.PodRunning:
 				switch status {
 				case "Terminated":
 					if restartCount > 0 {
-						log.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
+						log.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, podRetryTimes)
 					}
 				case "Waiting":
 					log.Errorf("[%v] Pod: %s reason: %v message: %v", status, pod.Name, reason, msg)
@@ -464,12 +477,12 @@ func (k *KubernetesCluster) WatchPod(podTemplate v1.Pod, watchUntil v1.PodPhase,
 				log.Infof("[Completed] Pod: %s", pod.Name)
 				return nil
 			case v1.PodFailed:
-				return fmt.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, retryTimes)
+				return fmt.Errorf("[%v] Pod: %s reason: %v retry: %d/%d", status, pod.Name, reason, restartCount, podRetryTimes)
 			default:
 				return fmt.Errorf("unsupported phase: %v", phase)
 			}
-			if restartCount > retryTimes {
-				return fmt.Errorf("[Abort] after retry %d/%d times", restartCount, retryTimes)
+			if restartCount > podRetryTimes {
+				return fmt.Errorf("[Abort] after retry %d/%d times", restartCount, podRetryTimes)
 			}
 		}
 	}

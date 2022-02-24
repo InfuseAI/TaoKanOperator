@@ -1,0 +1,11 @@
+#! /bin/bash
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $(basename $0) <rsync-worker-pod>"
+  echo "[Running rsync-worker pods]"
+  kubectl get pod -n hub -l app=rsync-worker | grep Running
+  exit 1
+fi
+
+pod=$1
+kubectl exec -n hub -it ${pod} -- tail -f /var/log/rsync_progress.log

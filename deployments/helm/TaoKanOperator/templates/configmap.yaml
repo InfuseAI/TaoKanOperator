@@ -64,7 +64,7 @@ metadata:
     heritage: "{{ .Release.Service }}"
 data:
   rsync-bwlimit: "250000"
-  rsync-cmd-options: "-azcrvhP --info=progress2 --no-i-r --stats"
+  rsync-cmd-options: "-azcrvhP --timeout=600 --info=progress2 --no-i-r --stats"
   rsync-pre-hook-script: |
   rsync-post-hook-script: |
 {{- end }}

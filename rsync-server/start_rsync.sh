@@ -2,7 +2,7 @@
 set -eo pipefail
 
 RSYNC_BWLIMIT=${RSYNC_BWLIMIT:-250000}
-RSYNC_CMD_OPTIONS=${RSYNC_CMD_OPTIONS:-"-azcrvhP --info=progress2 --no-i-r --stats"}
+RSYNC_CMD_OPTIONS=${RSYNC_CMD_OPTIONS:-"-azcrvhP --timeout=600 --info=progress2 --no-i-r --stats"}
 RSYNC_PRE_HOOK=${RSYNC_PRE_HOOK:-}
 RSYNC_POST_HOOK=${RSYNC_POST_HOOK:-}
 
