@@ -19,6 +19,8 @@ parse_rsync_summary_log() {
   pod_name=$1
   echo "[ ${pod_name/rsync-worker-/} ]" >> $LOG_FILE
   kubectl logs -n hub $pod_name --tail 40 | grep "Number of files" -A15 >> $LOG_FILE
+  total_time=$(kubectl logs -n hub $pod_name --tail 40 | grep "Number of files:" -B2 | head -n1 | awk '{print $5}')
+  echo "Total transfer time: ${total_time}" >> $LOG_FILE
   echo "" >> $LOG_FILE
 }
 

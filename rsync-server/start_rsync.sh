@@ -55,6 +55,8 @@ HOST remote-rsync-server
   IdentityFile ~/.ssh/id_rsa
   StrictHostKeyChecking no
   UserKnownHostsFile=/dev/null
+  ServerAliveInterval 60
+  ServerAliveCountMax 6
 EOF
   chmod 644 $HOME/.ssh/config
 }
