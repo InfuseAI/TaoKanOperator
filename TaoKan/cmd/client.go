@@ -300,7 +300,9 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) int {
 			err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, podRetryTimes)
 			if err != nil {
 				log.Errorf("[Failed] Launch worker %v :%v", "rsync-worker-"+pvc.Name, err)
+				continue
 			}
+			break
 		}
 		if err == nil {
 			completedCount++
