@@ -407,7 +407,7 @@ func (k *KubernetesCluster) LaunchRsyncWorkerPod(remote string, namespace string
 	err = k.WatchPod(*pod, v1.PodSucceeded, podRetryTimes)
 	if err != nil {
 		log.Debugf("Pod %s launch failed: %v", pod.Name, err)
-		if pod.Spec.RestartPolicy != v1.RestartPolicyNever {
+		if podRetryTimes > 0 {
 			k.DeletePod(pod.Namespace, pod.Name)
 		}
 		return err

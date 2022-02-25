@@ -12,6 +12,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"os"
 	"strings"
+	"time"
 )
 
 type backupList struct {
@@ -293,6 +294,8 @@ func transferPvcData(cmd *cobra.Command, pvcs []v1.PersistentVolumeClaim) int {
 		for i := 0; i <= workerRetryTimes; i++ {
 			if i > 0 {
 				log.Infof("[Retry] Relaunch worker %v retry: %d/%d", "rsync-worker-"+pvc.Name, i, workerRetryTimes)
+				log.Infof("[Retry] Cool down %d seconds", 60)
+				time.Sleep(60 * time.Second)
 			}
 			err = k8s.LaunchRsyncWorkerPod(RemoteCluster, Namespace, pvc.Name, podRetryTimes)
 			if err != nil {
